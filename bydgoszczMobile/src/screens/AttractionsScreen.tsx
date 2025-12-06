@@ -42,10 +42,10 @@ export default function AttractionsScreen({
         {attractions.map(attraction => (
           <TouchableOpacity
             key={attraction.id}
-            className="bg-white p-4 rounded-xl mb-4 shadow-sm"
+            className="bg-white p-4 h-60 items-center rounded-xl mb-4 shadow-sm"
             onPress={() => navigation.navigate('Details', attraction)}
           >
-            <Text className="text-xl font-bold text-gray-800 mb-2">
+            <Text className="text-xl font-bold text-gray-800 mb-6">
               {attraction.title}
             </Text>
             <Text className="text-gray-600 mb-2">{attraction.description}</Text>
