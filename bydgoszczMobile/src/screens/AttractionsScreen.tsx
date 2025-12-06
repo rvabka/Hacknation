@@ -21,44 +21,7 @@ const GRADIENT_SIZE = Math.sqrt(width * width + height * height) * 1.5;
 
 const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
 
-const attractions = [
-  {
-    id: '1',
-    title: 'Pomnik Łuczniczki',
-    image: require('../../assets/lucznik.jpeg'), 
-    description: 'Symbol Bydgoszczy, piękna rzeźba w parku Jana Kochanowskiego.',
-    rating: 4.8,
-    location: 'Śródmieście',
-    reviews: 124
-  },
-  {
-    id: '2',
-    title: 'Wyspa Młyńska',
-    image: require('../../assets/mistrztwardowski.jpeg'),
-    description: 'Malownicza wyspa nad Brdą, idealna na spacery i relaks.',
-    rating: 4.7,
-    location: 'Śródmieście',
-    reviews: 89
-  },
-  {
-    id: '3',
-    title: 'Opera Nova',
-    image: require('../../assets/wioslarz.jpeg'),
-    description: 'Nowoczesna opera nad rzeką z imponującą architekturą.',
-    rating: 4.9,
-    location: 'Wyspa Młyńska',
-    reviews: 215
-  },
-  {
-    id: '4',
-    title: 'Opera Nova',
-    image: require('../../assets/wioslarz.jpeg'),
-    description: 'Nowoczesna opera nad rzeką z imponującą architekturą.',
-    rating: 4.9,
-    location: 'Wyspa Młyńska',
-    reviews: 215
-  }
-];
+import { attractions } from '../data/attractions';
 
 export default function AttractionsScreen({
   navigation
@@ -156,7 +119,7 @@ export default function AttractionsScreen({
               <View style={styles.ratingBadge}>
                 <Ionicons name="star" size={14} color="#4ADE80" style={{ marginRight: 4 }} />
                 <Text style={styles.ratingText}>{attraction.rating}</Text>
-                <Text style={styles.ratingCount}>({attraction.reviews})</Text>
+                
               </View>
             </View>
 
