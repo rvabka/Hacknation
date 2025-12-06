@@ -5,15 +5,30 @@ import type { BottomTabParamList } from './types';
 
 import MapScreen from '../screens/MapScreen';
 import AttractionsScreen from '../screens/AttractionsScreen';
+import ARViewScreen from '../screens/ARViewScreen';
 
 const Tab = createBottomTabNavigator<BottomTabParamList>();
 
 export default function BottomTabNavigator() {
   return (
     <Tab.Navigator
-      screenOptions={{
+      screenOptions={({ route }) => ({
+        tabBarIcon: ({ focused, color, size }) => {
+          let iconName: keyof typeof Ionicons.glyphMap;
+
+          if (route.name === 'MapTab') {
+            iconName = focused ? 'map' : 'map-outline';
+          } else if (route.name === 'AttractionsTab') {
+            iconName = focused ? 'list' : 'list-outline';
+          } else {
+            iconName = 'camera-outline';
+          }
+
+          return <Ionicons name={iconName} size={size} color={color} />;
+        },
         tabBarActiveTintColor: '#3b82f6',
-        tabBarInactiveTintColor: '#6b7280',
+        tabBarInactiveTintColor: 'gray',
+        headerShown: true,
         headerStyle: {
           backgroundColor: '#3b82f6'
         },
@@ -21,28 +36,31 @@ export default function BottomTabNavigator() {
         headerTitleStyle: {
           fontWeight: 'bold'
         }
-      }}
+      })}
     >
       <Tab.Screen
         name="MapTab"
         component={MapScreen}
         options={{
-          title: 'Mapa',
           tabBarLabel: 'Mapa',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="map" size={size} color={color} />
-          )
+          title: 'Mapa Bydgoszczy'
         }}
       />
       <Tab.Screen
         name="AttractionsTab"
         component={AttractionsScreen}
         options={{
-          title: 'Atrakcje',
           tabBarLabel: 'Atrakcje',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="business" size={size} color={color} />
-          )
+          title: 'Atrakcje'
+        }}
+      />
+      <Tab.Screen
+        name="ARView"
+        component={ARViewScreen}
+        options={{
+          tabBarButton: () => null, // Ukrywa przycisk w tab bar
+          tabBarStyle: { display: 'none' }, // Ukrywa cały tab bar na tym ekranie
+          headerShown: false
         }}
       />
     </Tab.Navigator>

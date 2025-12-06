@@ -4,9 +4,11 @@ import {
   Text,
   StyleSheet,
   Platform,
-  TouchableOpacity
+  TouchableOpacity,
+  Modal
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import ARViewModal from '../components/ARViewModal';
 import type { MapTabScreenProps } from '../navigation/types';
 
 // Współrzędne Bydgoszczy
@@ -58,14 +60,30 @@ export default function MapScreen({ navigation }: MapTabScreenProps) {
   const [selectedAttraction, setSelectedAttraction] = useState<
     (typeof attractions)[0] | null
   >(null);
+  const [showARModal, setShowARModal] = useState(false);
 
   const handleMarkerPress = (attraction: (typeof attractions)[0]) => {
     setSelectedAttraction(attraction);
   };
 
+  const handleViewAR = () => {
+    setShowARModal(true);
+  };
+
+  const handleCloseAR = () => {
+    setShowARModal(false);
+  };
+
   const handleViewDetails = () => {
     if (selectedAttraction) {
-      navigation.navigate('Details', selectedAttraction);
+      // @ts-expect-error - Details is in parent Stack Navigator
+      navigation.navigate('Details', {
+        id: selectedAttraction.id,
+        title: selectedAttraction.title,
+        description: selectedAttraction.description,
+        rating: selectedAttraction.rating,
+        location: selectedAttraction.location
+      });
     }
   };
 
@@ -81,12 +99,11 @@ export default function MapScreen({ navigation }: MapTabScreenProps) {
         showsScale
         showsBuildings
         showsTraffic={false}
-        // 3D view settings
         pitchEnabled
         rotateEnabled
         camera={{
           center: BYDGOSZCZ_COORDS,
-          pitch: 60, // Kąt nachylenia dla 3D
+          pitch: 60,
           heading: 0,
           altitude: 1000,
           zoom: 14
@@ -121,13 +138,32 @@ export default function MapScreen({ navigation }: MapTabScreenProps) {
               📍 {selectedAttraction.location}
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.detailsButton}
-            onPress={handleViewDetails}
-          >
-            <Text style={styles.detailsButtonText}>Zobacz szczegóły →</Text>
-          </TouchableOpacity>
+
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.button, styles.arButton]}
+              onPress={handleViewAR}
+            >
+              <Text style={styles.buttonText}>📱 Zobacz w AR</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.button, styles.detailsButton]}
+              onPress={handleViewDetails}
+            >
+              <Text style={styles.buttonText}>ℹ️ Szczegóły</Text>
+            </TouchableOpacity>
+          </View>
         </View>
+      )}
+
+      {/* AR Modal */}
+      {selectedAttraction && (
+        <ARViewModal
+          visible={showARModal}
+          attraction={selectedAttraction}
+          onClose={handleCloseAR}
+        />
       )}
     </View>
   );
@@ -199,15 +235,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6b7280'
   },
-  detailsButton: {
-    backgroundColor: '#3b82f6',
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 8
+  },
+  button: {
+    flex: 1,
     padding: 12,
     borderRadius: 8,
     alignItems: 'center'
   },
-  detailsButtonText: {
+  arButton: {
+    backgroundColor: '#10b981'
+  },
+  detailsButton: {
+    backgroundColor: '#3b82f6'
+  },
+  buttonText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold'
   }
 });
