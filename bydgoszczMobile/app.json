@@ -13,7 +13,15 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.bydgoszcz.mobile",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Ta aplikacja potrzebuje dostępu do Twojej lokalizacji, aby pokazać Ci pobliskie atrakcje Bydgoszczy.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Ta aplikacja potrzebuje dostępu do Twojej lokalizacji, aby pokazać Ci pobliskie atrakcje Bydgoszczy."
+      },
+      "config": {
+        "googleMapsApiKey": "IfGiBsZ0PUv6xfgDrzcwLhgcCeU="
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,10 +29,25 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.bydgoszcz.mobile",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+      "config": {
+        "googleMaps": {
+          "apiKey": "IfGiBsZ0PUv6xfgDrzcwLhgcCeU="
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Zezwól aplikacji Bydgoszcz Mobile na dostęp do Twojej lokalizacji."
+        }
+      ]
+    ]
   }
 }
