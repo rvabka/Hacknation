@@ -34,7 +34,7 @@ export const attractions: Attraction[] = [
       longitude: 17.999333
     },
     mp3: require('../../assets/audio/lucznik.mp3'),
-    model: require('../../assets/models/lucznik2.glb')
+    model: require('../../assets/models/lucznik.glb')
   },
   {
     id: '2',

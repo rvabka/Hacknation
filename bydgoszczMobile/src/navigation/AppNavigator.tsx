@@ -1,4 +1,5 @@
 import React from 'react';
+import { Image } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { RootStackParamList } from './types';
@@ -22,14 +23,20 @@ export default function AppNavigator() {
           component={DetailsScreen}
           options={{
             headerShown: true,
-            title: 'Szczegóły',
+            headerBackVisible: false,
+            headerTitle: () => (
+              <Image
+                source={require('../../assets/bydgoszczLogo.png')}
+                style={{ width: 150, height: 100, top: -20 }}
+                resizeMode="contain"
+              />
+            ),
+            headerTitleAlign: 'center',
             headerStyle: {
-              backgroundColor: '#3b82f6'
+              backgroundColor: 'white',
             },
-            headerTintColor: '#fff',
-            headerTitleStyle: {
-              fontWeight: 'bold'
-            }
+            headerShadowVisible: false,
+            headerTintColor: '#1B4D3E',
           }}
         />
       </Stack.Navigator>
