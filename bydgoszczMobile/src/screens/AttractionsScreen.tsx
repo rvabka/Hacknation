@@ -43,7 +43,16 @@ const attractions = [
   {
     id: '3',
     title: 'Opera Nova',
-    image: { uri: 'https://plus.unsplash.com/premium_photo-1697730267396-878551e83929?q=80&w=1000&auto=format&fit=crop' },
+    image: require('../../assets/wioslarz.jpeg'),
+    description: 'Nowoczesna opera nad rzeką z imponującą architekturą.',
+    rating: 4.9,
+    location: 'Wyspa Młyńska',
+    reviews: 215
+  },
+  {
+    id: '4',
+    title: 'Opera Nova',
+    image: require('../../assets/wioslarz.jpeg'),
     description: 'Nowoczesna opera nad rzeką z imponującą architekturą.',
     rating: 4.9,
     location: 'Wyspa Młyńska',
