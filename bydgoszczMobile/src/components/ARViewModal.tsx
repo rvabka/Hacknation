@@ -6,7 +6,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
-  Modal
+  Modal,
+  PanResponder,
+  Animated,
+  Easing,
+  LogBox
 } from 'react-native';
 import { Camera, CameraView } from 'expo-camera';
 import { GLView } from 'expo-gl';
@@ -16,8 +20,11 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
 import * as Device from 'expo-device';
 import { Gyroscope } from 'expo-sensors';
+import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 
-// --- INTERFEJSY ---
+LogBox.ignoreLogs(["THREE.GLTFLoader: Couldn't load texture"]);
+
 interface Attraction {
   id: string;
   title: string;
@@ -46,17 +53,54 @@ export default function ARViewModal({
   const [error, setError] = useState<string | null>(null);
   const [isSimulator, setIsSimulator] = useState(false);
   const [isPlaced, setIsPlaced] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(true);
 
-  // Refs dla sensorów i rotacji
   const gyroSubscription = useRef<any>(null);
-  // Początkowa rotacja kamery w 3D, którą modyfikuje żyroskop
   const cameraRotation = useRef({ x: 0, y: 0, z: 0 });
+
+  const modelRef = useRef<THREE.Group | null>(null);
+  const panRotationRef = useRef(0);
+  const lastPanX = useRef(0);
+
+  const tutorialOpacity = useRef(new Animated.Value(1)).current;
+  const phoneSwing = useRef(new Animated.Value(0)).current;
+  const cardSlide = useRef(new Animated.Value(100)).current;
+  const cardOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
       setIsPlaced(false);
-      // Reset rotacji przy otwarciu, kamera patrzy prosto
+      setShowTutorial(true);
       cameraRotation.current = { x: 0, y: 0, z: 0 };
+      panRotationRef.current = 0;
+
+      tutorialOpacity.setValue(1);
+      phoneSwing.setValue(0);
+      cardSlide.setValue(100);
+      cardOpacity.setValue(0);
+
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(phoneSwing, {
+            toValue: 1,
+            duration: 800,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true
+          }),
+          Animated.timing(phoneSwing, {
+            toValue: -1,
+            duration: 800,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true
+          }),
+          Animated.timing(phoneSwing, {
+            toValue: 0,
+            duration: 800,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true
+          })
+        ])
+      ).start();
 
       (async () => {
         const isDeviceSimulator = !Device.isDevice;
@@ -84,28 +128,45 @@ export default function ARViewModal({
     };
   }, [visible]);
 
-  // --- OBSŁUGA SENSORÓW ---
-  const startSensors = () => {
-    // Szybki interwał dla płynności
-    Gyroscope.setUpdateInterval(50); // 20 FPS
+  useEffect(() => {
+    if (isPlaced) {
+      setTimeout(() => {
+        Animated.timing(tutorialOpacity, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true
+        }).start(() => setShowTutorial(false));
 
-    // Zmniejszona czułość, aby zminimalizować dryf
+        Animated.parallel([
+          Animated.timing(cardSlide, {
+            toValue: 0,
+            duration: 600,
+            easing: Easing.out(Easing.back(1.2)),
+            useNativeDriver: true
+          }),
+          Animated.timing(cardOpacity, {
+            toValue: 1,
+            duration: 400,
+            useNativeDriver: true
+          })
+        ]).start();
+      }, 1500);
+    }
+  }, [isPlaced]);
+
+  const startSensors = () => {
+    Gyroscope.setUpdateInterval(50);
     const GYRO_SENSITIVITY = 0.05;
 
     gyroSubscription.current = Gyroscope.addListener(gyroscopeData => {
-      // Znak ujemny dla X i Y, aby dopasować do konwencji Three.js/kamery
       cameraRotation.current.x -= gyroscopeData.x * GYRO_SENSITIVITY;
       cameraRotation.current.y -= gyroscopeData.y * GYRO_SENSITIVITY;
 
-      // Ograniczenie rotacji X (góra/dół), aby uniknąć błędów
       cameraRotation.current.x = Math.max(
-        -Math.PI / 3, // ~-60 stopni
-        Math.min(Math.PI / 3, cameraRotation.current.x) // ~60 stopni
+        -Math.PI / 3,
+        Math.min(Math.PI / 3, cameraRotation.current.x)
       );
-      // Nie ograniczamy Y, aby umożliwić obrót o 360 stopni
     });
-
-    console.log('📡 Gyroscope uruchomiony i zminimalizowany');
   };
 
   const stopSensors = () => {
@@ -113,28 +174,51 @@ export default function ARViewModal({
       gyroSubscription.current.remove();
       gyroSubscription.current = null;
     }
-    console.log('📡 Sensory zatrzymane');
   };
-  // --- KONIEC OBSŁUGI SENSORÓW ---
 
-  // --- GLVIEW/THREE.JS INICJALIZACJA ---
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+
+      onPanResponderGrant: () => {
+        lastPanX.current = 0;
+      },
+
+      onPanResponderMove: (_, gestureState) => {
+        const deltaX = gestureState.dx - lastPanX.current;
+        const rotationFactor = 0.005;
+
+        panRotationRef.current += deltaX * rotationFactor;
+
+        if (panRotationRef.current > Math.PI * 3) {
+          panRotationRef.current -= Math.PI * 3;
+        } else if (panRotationRef.current < -Math.PI * 3) {
+          panRotationRef.current += Math.PI * 3;
+        }
+
+        lastPanX.current = gestureState.dx;
+      },
+
+      onPanResponderRelease: () => {
+        lastPanX.current = 0;
+      }
+    })
+  ).current;
+
   const onContextCreate = async (gl: any) => {
     try {
       const { drawingBufferWidth: width, drawingBufferHeight: height } = gl;
 
-      // 1. Renderer
       const renderer = new Renderer({ gl });
       renderer.setSize(width, height);
-      renderer.setClearColor(0x000000, 0); // KLUCZOWE: Przezroczyste tło
+      renderer.setClearColor(0x000000, 0);
 
-      // 2. Scene
       const scene = new THREE.Scene();
 
-      // 3. Camera (Pozycja jest stała, zmieniamy tylko rotację)
       const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
-      camera.position.set(0, 1.6, 0); // Wysokość oczu
+      camera.position.set(0, 1.6, 0);
 
-      // 4. Lights
       const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
       scene.add(ambientLight);
 
@@ -142,98 +226,100 @@ export default function ARViewModal({
       directionalLight.position.set(10, 20, 10);
       scene.add(directionalLight);
 
-      // 5. Load 3D Model
       try {
-        const asset = Asset.fromModule(require('../../assets/lucznik.glb'));
+        const asset = Asset.fromModule(require('../../assets/lucznik2.glb'));
         await asset.downloadAsync();
-        const loader = new GLTFLoader();
-        const finalPosition = new THREE.Vector3(0, 0, -5); // 5m przed kamerą
 
-        loader.load(
-          asset.localUri || asset.uri,
+        const response = await fetch(asset.localUri || asset.uri);
+        const fileContent = await response.arrayBuffer();
+
+        const loader = new GLTFLoader(new THREE.LoadingManager());
+
+        const finalPosition = new THREE.Vector3(0, 0, -5);
+
+        loader.parse(
+          fileContent,
+          asset.uri.substring(0, asset.uri.lastIndexOf('/') + 1),
           gltf => {
             const model = gltf.scene;
+            modelRef.current = model;
+
             const box = new THREE.Box3().setFromObject(model);
             const center = box.getCenter(new THREE.Vector3());
             const size = box.getSize(new THREE.Vector3());
 
-            // Skalowanie modelu (np. do 3m wysokości/szerokości)
             const maxDim = Math.max(size.x, size.y, size.z);
-            const targetSize = 3;
+            const targetSize = 5;
             const scale = targetSize / maxDim;
 
-            // Centruj model, aby jego podstawa była na Y=0 (dla modelu stojącego)
             model.position.sub(center);
             model.position.y += size.y / 2;
 
-            // Ustaw STAŁĄ pozycję w świecie
             const targetY = model.position.y;
             model.position.add(finalPosition);
             model.scale.setScalar(scale);
 
-            // Materiały
             model.traverse((child: any) => {
               if (child.isMesh) {
-                child.material = new THREE.MeshStandardMaterial({
-                  color: 0xcccccc,
-                  metalness: 0.3,
-                  roughness: 0.8,
-                  side: THREE.DoubleSide
-                });
+                if (
+                  !child.material ||
+                  child.material.type === 'MeshBasicMaterial'
+                ) {
+                  child.material = new THREE.MeshStandardMaterial({
+                    color: 0xcccccc,
+                    metalness: 0.3,
+                    roughness: 0.8,
+                    side: THREE.DoubleSide
+                  });
+                }
               }
             });
 
-            // Animacja spadania
             const targetScale = scale;
-            model.position.y = 15;
-            model.scale.setScalar(0);
+            model.position.y = 10;
+            model.scale.setScalar(0.1);
             scene.add(model);
 
             let animationProgress = 0;
-            const placementDuration = 1.2;
-            const dampingFactor = 0.2; // Wygładzanie ruchu kamery
+            const placementDuration = 1.0;
+            const dampingFactor = 0.2;
 
-            // --- PĘTLA ANIMACJI ---
             const animate = () => {
               requestAnimationFrame(animate);
 
-              // Animacja umieszczania
               if (animationProgress < placementDuration) {
                 animationProgress += 0.016;
                 const progress = Math.min(
                   animationProgress / placementDuration,
                   1
                 );
-                const easeProgress = 1 - Math.pow(1 - progress, 3);
 
-                model.position.y = 15 - 15 * easeProgress + targetY;
-                model.scale.setScalar(targetScale * easeProgress);
-                model.rotation.y = easeProgress * Math.PI * 2;
+                const easeProgress = 1 - Math.pow(1 - progress, 2);
+
+                model.position.y = 10 - (10 - targetY) * easeProgress;
+                model.scale.setScalar(0.1 + (targetScale - 0.1) * easeProgress);
+                model.rotation.y += Math.PI / 10;
 
                 if (progress >= 1) {
                   setIsLoading(false);
                   setIsPlaced(true);
                   model.rotation.y = 0;
-                  // ZABLOKOWANIE na finalnej pozycji
                   model.position.set(finalPosition.x, targetY, finalPosition.z);
                 }
-              } else {
-                // Opcjonalne: Delikatny obrót modelu, gdy jest już umieszczony
-                model.rotation.y += 0.001;
+              } else if (modelRef.current) {
+                modelRef.current.rotation.y += 0.001;
+                modelRef.current.rotation.y += panRotationRef.current;
+                panRotationRef.current = 0;
               }
 
-              // KAMERA - Rotacja sterowana przez żyroskop (KLUCZ AR)
               if (!isSimulator) {
-                // Wygładzanie rotacji Y (poziome)
                 camera.rotation.y +=
                   (cameraRotation.current.y - camera.rotation.y) *
                   dampingFactor;
-                // Wygładzanie rotacji X (pionowe)
                 camera.rotation.x +=
                   (cameraRotation.current.x - camera.rotation.x) *
                   dampingFactor;
               } else {
-                // Tryb Symulatora
                 const time = Date.now() * 0.0001;
                 camera.position.x = Math.sin(time) * 6;
                 camera.position.z = Math.cos(time) * 6 - 5;
@@ -243,29 +329,28 @@ export default function ARViewModal({
               renderer.render(scene, camera);
               gl.endFrameEXP();
             };
-            // --- KONIEC PĘTLI ANIMACJI ---
 
             animate();
           },
-          undefined,
-          error => {
-            console.error('❌ Błąd ładowania:', error);
-            setError('Nie udało się załadować modelu 3D');
+          () => {
+            setError('Nie udało się sparsować modelu 3D');
             setIsLoading(false);
           }
         );
-      } catch (err) {
-        console.error('❌ Błąd ładowania/modelu:', err);
-        setError('Nie znaleziono pliku modelu');
+      } catch {
+        setError('Błąd ładowania pliku modelu');
         setIsLoading(false);
       }
-    } catch (error) {
-      console.error('❌ Błąd GLView:', error);
+    } catch {
       setError('Błąd inicjalizacji 3D');
       setIsLoading(false);
     }
   };
-  // --- KONIEC INICJALIZACJI ---
+
+  const phoneRotation = phoneSwing.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: ['-15deg', '0deg', '15deg']
+  });
 
   return (
     <Modal
@@ -277,65 +362,150 @@ export default function ARViewModal({
       <View style={styles.container}>
         {hasPermission === null ? (
           <View style={styles.centerContainer}>
-            <ActivityIndicator size="large" color="#3b82f6" />
-            <Text style={styles.loadingText}>Inicjalizacja...</Text>
+            <ActivityIndicator size="large" color="#1B4D3E" />
+            <Text style={styles.initText}>Inicjalizacja AR...</Text>
           </View>
         ) : hasPermission === false ? (
           <View style={styles.centerContainer}>
-            <Text style={styles.errorText}>❌ Brak dostępu do kamery</Text>
-            <Text style={styles.errorSubtext}>
-              Włącz dostęp do kamery w ustawieniach
-            </Text>
-            <TouchableOpacity style={styles.backButton} onPress={onClose}>
-              <Text style={styles.backButtonText}>← Powrót</Text>
-            </TouchableOpacity>
+            <View style={styles.errorCard}>
+              <Ionicons name="camera-outline" size={48} color="#1B4D3E" />
+              <Text style={styles.errorTitle}>Brak dostępu do kamery</Text>
+              <Text style={styles.errorSubtitle}>
+                Włącz dostęp do kamery w ustawieniach, aby korzystać z AR
+              </Text>
+              <TouchableOpacity style={styles.primaryButton} onPress={onClose}>
+                <Text style={styles.primaryButtonText}>Powrót</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : error ? (
           <View style={styles.centerContainer}>
-            <Text style={styles.errorText}>⚠️ {error}</Text>
-            <TouchableOpacity style={styles.backButton} onPress={onClose}>
-              <Text style={styles.backButtonText}>← Powrót</Text>
-            </TouchableOpacity>
+            <View style={styles.errorCard}>
+              <Ionicons name="alert-circle-outline" size={48} color="#DC2626" />
+              <Text style={styles.errorTitle}>{error}</Text>
+              <TouchableOpacity style={styles.primaryButton} onPress={onClose}>
+                <Text style={styles.primaryButtonText}>Powrót</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : (
           <>
-            {/* Kamera - Tło AR */}
             {!isSimulator && <CameraView style={styles.camera} facing="back" />}
-            {/* GLView - Przezroczysty render 3D */}
-            <GLView style={styles.glView} onContextCreate={onContextCreate} />
+
+            <GLView
+              style={styles.glView}
+              onContextCreate={onContextCreate}
+              {...panResponder.panHandlers}
+            />
 
             <View style={styles.header}>
-              <View>
-                <Text style={styles.title}>{attraction.title}</Text>
-                <Text style={styles.subtitle}>
-                  {isPlaced ? '✅ AR Aktywny' : '📱 Umieszczanie...'}
-                </Text>
-              </View>
-              <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-                <Text style={styles.closeButtonText}>✕</Text>
-              </TouchableOpacity>
+              <BlurView intensity={80} tint="dark" style={styles.headerBlur}>
+                <View style={styles.headerContent}>
+                  <View style={styles.headerLeft}>
+                    <View style={styles.arBadge}>
+                      <Text style={styles.arBadgeText}>AR</Text>
+                    </View>
+                    <View>
+                      <Text style={styles.headerTitle}>{attraction.title}</Text>
+                      <Text style={styles.headerSubtitle}>
+                        {isPlaced ? 'Widok aktywny' : 'Ładowanie...'}
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.closeButton}
+                    onPress={onClose}
+                  >
+                    <Ionicons name="close" size={24} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              </BlurView>
             </View>
 
             {isLoading && (
               <View style={styles.loadingOverlay}>
-                <ActivityIndicator size="large" color="#ffffff" />
-                <Text style={styles.loadingText}>Umieszczanie pomnika...</Text>
+                <View style={styles.loadingCard}>
+                  <ActivityIndicator size="large" color="#1B4D3E" />
+                  <Text style={styles.loadingTitle}>Umieszczanie modelu</Text>
+                  <Text style={styles.loadingSubtitle}>
+                    Przygotowywanie widoku AR...
+                  </Text>
+                </View>
               </View>
             )}
 
-            {isPlaced && (
-              <View style={styles.instructions}>
-                <Text style={styles.instructionText}>
-                  ✅ Model zakotwiczony 5m przed Tobą!
-                </Text>
-                <Text style={styles.instructionText}>
-                  📱 Obróć telefon, aby rozejrzeć się dookoła (Pan/Tilt).
-                </Text>
-                <Text style={styles.instructionText}>
-                  ⚠️ Model może delikatnie dryfować w czasie (Ograniczenie
-                  Sensor AR).
-                </Text>
-              </View>
+            {showTutorial && isPlaced && (
+              <Animated.View
+                style={[styles.tutorialOverlay, { opacity: tutorialOpacity }]}
+              >
+                <View style={styles.tutorialCard}>
+                  <Animated.View
+                    style={[
+                      styles.phoneIcon,
+                      { transform: [{ rotate: phoneRotation }] }
+                    ]}
+                  >
+                    <Ionicons
+                      name="phone-portrait-outline"
+                      size={64}
+                      color="#1B4D3E"
+                    />
+                  </Animated.View>
+                  <Text style={styles.tutorialTitle}>Porusz telefonem</Text>
+                  <Text style={styles.tutorialSubtitle}>
+                    Rozejrzyj się dookoła, aby zobaczyć model z różnych stron
+                  </Text>
+                </View>
+              </Animated.View>
+            )}
+
+            {isPlaced && !showTutorial && (
+              <Animated.View
+                style={[
+                  styles.infoCardContainer,
+                  {
+                    opacity: cardOpacity,
+                    transform: [{ translateY: cardSlide }]
+                  }
+                ]}
+              >
+                <View style={styles.infoCard}>
+                  <View style={styles.infoHeader}>
+                    <View style={styles.infoIconContainer}>
+                      <Ionicons name="cube-outline" size={20} color="#FFFFFF" />
+                    </View>
+                    <View style={styles.infoTitleContainer}>
+                      <Text style={styles.infoTitle}>{attraction.title}</Text>
+                      <View style={styles.locationRow}>
+                        <Ionicons name="location" size={12} color="#4ADE80" />
+                        <Text style={styles.infoLocation}>
+                          {attraction.location}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.controlsRow}>
+                    <View style={styles.controlItem}>
+                      <Ionicons
+                        name="phone-portrait-outline"
+                        size={16}
+                        color="#FFFFFF"
+                      />
+                      <Text style={styles.controlText}>Obróć telefon</Text>
+                    </View>
+                    <View style={styles.controlDivider} />
+                    <View style={styles.controlItem}>
+                      <Ionicons
+                        name="hand-left-outline"
+                        size={16}
+                        color="#FFFFFF"
+                      />
+                      <Text style={styles.controlText}>Przesuń palcem</Text>
+                    </View>
+                  </View>
+                </View>
+              </Animated.View>
             )}
           </>
         )}
@@ -344,7 +514,6 @@ export default function ARViewModal({
   );
 }
 
-// --- STYLE ---
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -365,30 +534,103 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#000',
+    backgroundColor: '#F5F5F5',
     padding: 20
+  },
+  initText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#1B4D3E',
+    fontWeight: '500'
+  },
+  errorCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 32,
+    alignItems: 'center',
+    width: '90%',
+    maxWidth: 340,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20
+      },
+      android: {
+        elevation: 8
+      }
+    })
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginTop: 16,
+    textAlign: 'center'
+  },
+  errorSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 8,
+    textAlign: 'center',
+    lineHeight: 20
+  },
+  primaryButton: {
+    backgroundColor: '#1B4D3E',
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 16,
+    marginTop: 24
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600'
   },
   header: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
+    zIndex: 10
+  },
+  headerBlur: {
+    paddingTop: Platform.OS === 'ios' ? 50 : 30,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
+    overflow: 'hidden'
+  },
+  headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    padding: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    backgroundColor: 'rgba(0,0,0,0.6)'
+    alignItems: 'center'
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#d1d5db'
+  arBadge: {
+    backgroundColor: '#4ADE80',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8
+  },
+  arBadgeText: {
+    color: '#1B4D3E',
+    fontSize: 12,
+    fontWeight: '800'
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF'
+  },
+  headerSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
+    marginTop: 2
   },
   closeButton: {
     width: 40,
@@ -398,11 +640,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center'
   },
-  closeButtonText: {
-    fontSize: 24,
-    color: '#fff',
-    fontWeight: 'bold'
-  },
   loadingOverlay: {
     position: 'absolute',
     top: 0,
@@ -411,51 +648,128 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.7)'
+    backgroundColor: 'rgba(0,0,0,0.6)'
   },
-  loadingText: {
-    marginTop: 10,
+  loadingCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 32,
+    alignItems: 'center',
+    width: '80%',
+    maxWidth: 280
+  },
+  loadingTitle: {
     fontSize: 18,
-    color: '#fff',
-    textAlign: 'center',
-    fontWeight: 'bold'
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginTop: 16
   },
-  instructions: {
+  loadingSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4
+  },
+  tutorialOverlay: {
     position: 'absolute',
-    bottom: 40,
-    left: 20,
-    right: 20,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    padding: 16,
-    borderRadius: 12
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)'
   },
-  instructionText: {
-    fontSize: 13,
-    color: '#fff',
-    marginBottom: 6,
-    textAlign: 'center'
+  tutorialCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 40,
+    alignItems: 'center',
+    width: '80%',
+    maxWidth: 300
   },
-  errorText: {
-    fontSize: 24,
-    color: '#fff',
-    textAlign: 'center',
+  phoneIcon: {
     marginBottom: 20
   },
-  errorSubtext: {
-    fontSize: 16,
-    color: '#9ca3af',
+  tutorialTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 8
+  },
+  tutorialSubtitle: {
+    fontSize: 14,
+    color: '#666',
     textAlign: 'center',
-    marginBottom: 30
+    lineHeight: 20
   },
-  backButton: {
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 32,
-    paddingVertical: 12,
-    borderRadius: 24
+  infoCardContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 16,
+    right: 16
   },
-  backButtonText: {
-    color: '#fff',
+  infoCard: {
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)'
+  },
+  infoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12
+  },
+  infoIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#1B4D3E',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  infoTitleContainer: {
+    flex: 1
+  },
+  infoTitle: {
     fontSize: 16,
-    fontWeight: 'bold'
+    fontWeight: '700',
+    color: '#FFFFFF'
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2
+  },
+  infoLocation: {
+    fontSize: 12,
+    color: '#4ADE80',
+    fontWeight: '500'
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)'
+  },
+  controlItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6
+  },
+  controlText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontWeight: '500'
+  },
+  controlDivider: {
+    width: 1,
+    height: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)'
   }
 });
