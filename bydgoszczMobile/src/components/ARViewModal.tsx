@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import AudioPlayerModal, { stopAndUnloadAudio } from './AudioPlayer';
+import GeminiChatModal from './GeminiChatModal';
 
 import {
   View,
@@ -24,10 +25,7 @@ import * as Device from 'expo-device';
 import { Gyroscope } from 'expo-sensors';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import {
-  SafeAreaView,
-  useSafeAreaInsets
-} from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Attraction } from '../data/attractions';
 
 LogBox.ignoreLogs(["THREE.GLTFLoader: Couldn't load texture"]);
@@ -51,6 +49,7 @@ export default function ARViewModal({
   const [isPlaced, setIsPlaced] = useState(false);
   const [showTutorial, setShowTutorial] = useState(true);
   const [showAudioModal, setShowAudioModal] = useState(false);
+  const [showChatModal, setShowChatModal] = useState(false);
 
   const gyroSubscription = useRef<any>(null);
   const cameraRotation = useRef({ x: 0, y: 0, z: 0 });
@@ -70,8 +69,9 @@ export default function ARViewModal({
 
   // Funkcja zamykająca AR z zatrzymaniem audio
   const handleCloseAR = async () => {
-    // Zamknij modal audio jeśli otwarty
+    // Zamknij modals jeśli otwarte
     setShowAudioModal(false);
+    setShowChatModal(false);
 
     // Zatrzymaj i wyczyść audio
     await stopAndUnloadAudio();
@@ -425,9 +425,7 @@ export default function ARViewModal({
               {...panResponder.panHandlers}
             />
 
-            <SafeAreaView
-              style={[styles.header, { paddingTop: insets.top - 15 }]}
-            >
+            <View style={[styles.header, { paddingTop: insets.top }]}>
               <BlurView intensity={80} tint="dark" style={styles.headerBlur}>
                 <View style={styles.headerContent}>
                   <View style={styles.headerLeft}>
@@ -461,7 +459,7 @@ export default function ARViewModal({
                   </View>
                 </View>
               </BlurView>
-            </SafeAreaView>
+            </View>
 
             {isLoading && (
               <View style={styles.loadingOverlay}>
@@ -525,18 +523,38 @@ export default function ARViewModal({
                         <Text style={styles.infoLocation}>
                           {attraction.location}
                         </Text>
-                        {hasAudio && (
-                          <View style={styles.audioBadge}>
-                            <Ionicons
-                              name="musical-notes"
-                              size={10}
-                              color="#4ADE80"
-                            />
-                            <Text style={styles.audioBadgeText}>Audio</Text>
-                          </View>
-                        )}
                       </View>
                     </View>
+                  </View>
+
+                  {/* Action buttons */}
+                  <View style={styles.actionButtonsRow}>
+                    {hasAudio && (
+                      <TouchableOpacity
+                        style={styles.actionButton}
+                        onPress={() => setShowAudioModal(true)}
+                      >
+                        <View style={styles.actionIconContainer}>
+                          <Ionicons name="headset" size={18} color="#4ADE80" />
+                        </View>
+                        <Text style={styles.actionButtonText}>Audio</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={() => setShowChatModal(true)}
+                    >
+                      <View
+                        style={[
+                          styles.actionIconContainer,
+                          styles.aiIconContainer
+                        ]}
+                      >
+                        <Ionicons name="sparkles" size={18} color="#A78BFA" />
+                      </View>
+                      <Text style={styles.actionButtonText}>Zapytaj AI</Text>
+                    </TouchableOpacity>
                   </View>
 
                   <View style={styles.controlsRow}>
@@ -570,6 +588,14 @@ export default function ARViewModal({
                 onClose={() => setShowAudioModal(false)}
               />
             )}
+
+            <GeminiChatModal
+              visible={showChatModal}
+              attractionTitle={attraction.title}
+              attractionDescription={attraction.description}
+              attractionLocation={attraction.location}
+              onClose={() => setShowChatModal(false)}
+            />
           </>
         )}
       </View>
@@ -829,20 +855,38 @@ const styles = StyleSheet.create({
     color: '#4ADE80',
     fontWeight: '500'
   },
-  audioBadge: {
+  actionButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12
+  },
+  actionButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    backgroundColor: 'rgba(74, 222, 128, 0.2)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    marginLeft: 8
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)'
   },
-  audioBadgeText: {
-    fontSize: 10,
-    color: '#4ADE80',
-    fontWeight: '600'
+  actionIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(74, 222, 128, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  aiIconContainer: {
+    backgroundColor: 'rgba(167, 139, 250, 0.2)'
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF'
   },
   controlsRow: {
     flexDirection: 'row',
