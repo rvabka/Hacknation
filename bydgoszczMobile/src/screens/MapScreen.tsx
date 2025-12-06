@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import ARViewModal from '../components/ARViewModal';
 import type { MapTabScreenProps } from '../navigation/types';
-import { attractions } from '../data/attractions';
+import { attractions, Attraction } from '../data/attractions';
 
 const BYDGOSZCZ_COORDS = {
   latitude: 53.1235,
@@ -23,12 +23,14 @@ const BYDGOSZCZ_COORDS = {
   longitudeDelta: 0.05
 };
 
+// Policz ile atrakcji ma modele AR
+const arModelsCount = attractions.filter(a => a.model).length;
+
 export default function MapScreen({ navigation }: MapTabScreenProps) {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
-  const [selectedAttraction, setSelectedAttraction] = useState<
-    (typeof attractions)[0] | null
-  >(null);
+  const [selectedAttraction, setSelectedAttraction] =
+    useState<Attraction | null>(null);
   const [showARModal, setShowARModal] = useState(false);
   const [userLocation, setUserLocation] = useState<{
     latitude: number;
@@ -50,7 +52,7 @@ export default function MapScreen({ navigation }: MapTabScreenProps) {
     })();
   }, []);
 
-  const handleMarkerPress = (attraction: (typeof attractions)[0]) => {
+  const handleMarkerPress = (attraction: Attraction) => {
     if (selectedAttraction?.id === attraction.id) return;
 
     setSelectedAttraction(attraction);
@@ -78,7 +80,9 @@ export default function MapScreen({ navigation }: MapTabScreenProps) {
   };
 
   const handleViewAR = () => {
-    setShowARModal(true);
+    if (selectedAttraction?.model) {
+      setShowARModal(true);
+    }
   };
 
   const handleCloseAR = () => {
@@ -144,6 +148,8 @@ export default function MapScreen({ navigation }: MapTabScreenProps) {
     outputRange: [0.9, 1]
   });
 
+  const hasModel = selectedAttraction?.model;
+
   return (
     <View style={styles.container}>
       <MapView
@@ -178,11 +184,12 @@ export default function MapScreen({ navigation }: MapTabScreenProps) {
               style={[
                 styles.markerContainer,
                 selectedAttraction?.id === attraction.id &&
-                  styles.markerSelected
+                  styles.markerSelected,
+                attraction.model && styles.markerWithAR
               ]}
             >
               <Ionicons
-                name="location"
+                name={attraction.model ? 'cube' : 'location'}
                 size={24}
                 color={
                   selectedAttraction?.id === attraction.id
@@ -205,7 +212,7 @@ export default function MapScreen({ navigation }: MapTabScreenProps) {
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Ionicons name="cube-outline" size={14} color="#4ADE80" />
-            <Text style={styles.statValue}>3</Text>
+            <Text style={styles.statValue}>{arModelsCount}</Text>
             <Text style={styles.statLabel}>modele AR</Text>
           </View>
         </View>
@@ -231,10 +238,16 @@ export default function MapScreen({ navigation }: MapTabScreenProps) {
           <View style={styles.infoCard}>
             <View style={styles.infoHeader}>
               <View style={styles.infoIconContainer}>
-                <Ionicons name="business-outline" size={20} color="#FFFFFF" />
+                <Ionicons
+                  name={hasModel ? 'cube-outline' : 'business-outline'}
+                  size={20}
+                  color="#FFFFFF"
+                />
               </View>
               <View style={styles.infoTitleContainer}>
-                <Text style={styles.infoTitle}>{selectedAttraction.title}</Text>
+                <Text style={styles.infoTitle} numberOfLines={1}>
+                  {selectedAttraction.title}
+                </Text>
                 <View style={styles.locationRow}>
                   <Ionicons name="location" size={12} color="#4ADE80" />
                   <Text style={styles.infoLocation}>
@@ -260,20 +273,28 @@ export default function MapScreen({ navigation }: MapTabScreenProps) {
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.infoDescription}>
+            <Text style={styles.infoDescription} numberOfLines={2}>
               {selectedAttraction.description}
             </Text>
 
             <View style={styles.buttonsRow}>
-              <TouchableOpacity style={styles.arButton} onPress={handleViewAR}>
-                <View style={styles.arBadge}>
-                  <Text style={styles.arBadgeText}>AR</Text>
-                </View>
-                <Text style={styles.buttonText}>Zobacz w AR</Text>
-              </TouchableOpacity>
+              {hasModel ? (
+                <TouchableOpacity
+                  style={styles.arButton}
+                  onPress={handleViewAR}
+                >
+                  <View style={styles.arBadge}>
+                    <Text style={styles.arBadgeText}>AR</Text>
+                  </View>
+                  <Text style={styles.buttonText}>Zobacz w AR</Text>
+                </TouchableOpacity>
+              ) : null}
 
               <TouchableOpacity
-                style={styles.detailsButton}
+                style={[
+                  styles.detailsButton,
+                  !hasModel && styles.detailsButtonFull
+                ]}
                 onPress={handleViewDetails}
               >
                 <Ionicons
@@ -288,7 +309,7 @@ export default function MapScreen({ navigation }: MapTabScreenProps) {
         </Animated.View>
       )}
 
-      {selectedAttraction && (
+      {selectedAttraction?.model && (
         <ARViewModal
           visible={showARModal}
           attraction={selectedAttraction}
@@ -397,6 +418,9 @@ const styles = StyleSheet.create({
   },
   markerSelected: {
     backgroundColor: '#1B4D3E',
+    borderColor: '#4ADE80'
+  },
+  markerWithAR: {
     borderColor: '#4ADE80'
   },
   infoCardContainer: {
@@ -509,6 +533,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)'
+  },
+  detailsButtonFull: {
+    flex: 1
   },
   arBadge: {
     backgroundColor: '#4ADE80',

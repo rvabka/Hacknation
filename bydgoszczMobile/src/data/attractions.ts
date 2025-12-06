@@ -10,13 +10,14 @@ export interface Attraction {
     latitude: number;
     longitude: number;
   };
-  
-  image?: any; 
+  image?: any;
   category?: string;
   openingHours?: string;
   price?: string;
   website?: string;
   phone?: string;
+  mp3?: any;
+  model?: any;
 }
 
 export const attractions: Attraction[] = [
@@ -27,11 +28,13 @@ export const attractions: Attraction[] = [
     description:
       'Jeden z najbardziej rozpoznawalnych symboli Bydgoszczy. Smukła rzeźba dłuta Ferdinanda Lepckego, stojąca w parku Jana Kochanowskiego, zachwyca elegancją i proporcjami.',
     rating: 4.6,
-    location: 'Stary Rynek', // Uwaga: w Twoim kodzie było Stary Rynek, choć fizycznie jest w Parku Kochanowskiego, ale nie zmieniałem location zgodnie z prośbą o zmianę TYLKO description
+    location: 'Stary Rynek',
     coordinate: {
       latitude: 53.122853,
       longitude: 17.999333
-    }
+    },
+    mp3: require('../../assets/audio/lucznik.mp3'),
+    model: require('../../assets/models/lucznik2.glb')
   },
   {
     id: '2',
@@ -70,7 +73,9 @@ export const attractions: Attraction[] = [
     coordinate: {
       latitude: 53.1233,
       longitude: 18.0033
-    }
+    },
+    model: require('../../assets/models/poczta.glb'),
+    mp3: require('../../assets/audio/poczta.mp3')
   },
   {
     id: '5',
@@ -83,7 +88,9 @@ export const attractions: Attraction[] = [
     coordinate: {
       latitude: 53.119444,
       longitude: 17.990278
-    }
+    },
+    mp3: require('../../assets/audio/wiezacisnien.mp3'),
+    model: require('../../assets/models/wiezacisnien.glb')
   },
   {
     id: '6',

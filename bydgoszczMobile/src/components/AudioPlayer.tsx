@@ -4,92 +4,197 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Animated
+  Modal,
+  Animated,
+  Easing,
+  Platform,
+  Dimensions
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import Slider from '@react-native-community/slider';
 
-interface AudioPlayerProps {
-  audioFile: any; // require('../../assets/audio/...')
-  onClose?: () => void;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+interface AudioPlayerModalProps {
+  visible: boolean;
+  audioFile: any;
+  title: string;
+  onClose: () => void;
 }
 
-export default function AudioPlayer({ audioFile, onClose }: AudioPlayerProps) {
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+// Przechowuj sound globalnie, żeby pamiętał pozycję
+let globalSound: Audio.Sound | null = null;
+let globalAudioFile: any = null;
+
+// Funkcja do zatrzymania i wyczyszczenia audio (eksportowana)
+export async function stopAndUnloadAudio() {
+  if (globalSound) {
+    try {
+      await globalSound.stopAsync();
+      await globalSound.unloadAsync();
+    } catch (error) {
+      console.error('Error stopping audio:', error);
+    }
+    globalSound = null;
+    globalAudioFile = null;
+  }
+}
+
+export default function AudioPlayerModal({
+  visible,
+  audioFile,
+  title,
+  onClose
+}: AudioPlayerModalProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [isExpanded, setIsExpanded] = useState(false);
-  
-  const expandAnim = useRef(new Animated.Value(0)).current;
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  const slideAnim = useRef(new Animated.Value(300)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    loadAudio();
-    return () => {
-      if (sound) {
-        sound.unloadAsync();
-      }
-    };
-  }, [audioFile]);
+    if (visible) {
+      loadOrResumeAudio();
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 400,
+          easing: Easing.out(Easing.back(1.1)),
+          useNativeDriver: true
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true
+        })
+      ]).start();
+    }
+  }, [visible]);
 
-  const loadAudio = async () => {
+  useEffect(() => {
+    return () => {
+      // Nie usuwaj dźwięku przy unmount - zachowaj pozycję
+    };
+  }, []);
+
+  const loadOrResumeAudio = async () => {
     try {
+      // Jeśli plik audio się zmienił, załaduj nowy
+      if (globalAudioFile !== audioFile) {
+        if (globalSound) {
+          await globalSound.unloadAsync();
+          globalSound = null;
+        }
+        globalAudioFile = audioFile;
+      }
+
+      // Jeśli dźwięk już istnieje, użyj go
+      if (globalSound) {
+        const status = await globalSound.getStatusAsync();
+        if (status.isLoaded) {
+          setPosition(status.positionMillis);
+          setDuration(status.durationMillis || 0);
+          setIsPlaying(status.isPlaying);
+          setIsLoaded(true);
+
+          // Ustaw callback dla aktualizacji statusu
+          globalSound.setOnPlaybackStatusUpdate(onPlaybackStatusUpdate);
+          return;
+        }
+      }
+
+      // Załaduj nowy dźwięk
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true
+      });
+
       const { sound: newSound } = await Audio.Sound.createAsync(
         audioFile,
         { shouldPlay: false },
         onPlaybackStatusUpdate
       );
-      setSound(newSound);
+
+      globalSound = newSound;
+      setIsLoaded(true);
     } catch (error) {
       console.error('Error loading audio:', error);
     }
   };
 
   const onPlaybackStatusUpdate = (status: any) => {
-    if (status.isLoaded) {
+    if (status.isLoaded && !isSeeking) {
       setPosition(status.positionMillis);
       setDuration(status.durationMillis || 0);
       setIsPlaying(status.isPlaying);
 
       if (status.didJustFinish) {
         setIsPlaying(false);
-        sound?.setPositionAsync(0);
       }
     }
   };
 
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: 300,
+        duration: 300,
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: true
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true
+      })
+    ]).start(() => {
+      // Nie wyłączaj dźwięku - tylko zamknij modal
+      onClose();
+    });
+  };
+
   const togglePlayPause = async () => {
-    if (!sound) return;
+    if (!globalSound) return;
 
     if (isPlaying) {
-      await sound.pauseAsync();
+      await globalSound.pauseAsync();
     } else {
-      await sound.playAsync();
+      await globalSound.playAsync();
     }
   };
 
   const skipForward = async () => {
-    if (!sound) return;
+    if (!globalSound) return;
     const newPosition = Math.min(position + 10000, duration);
-    await sound.setPositionAsync(newPosition);
+    await globalSound.setPositionAsync(newPosition);
+    setPosition(newPosition);
   };
 
   const skipBackward = async () => {
-    if (!sound) return;
+    if (!globalSound) return;
     const newPosition = Math.max(position - 10000, 0);
-    await sound.setPositionAsync(newPosition);
+    await globalSound.setPositionAsync(newPosition);
+    setPosition(newPosition);
   };
 
-  const toggleExpand = () => {
-    const toValue = isExpanded ? 0 : 1;
-    setIsExpanded(!isExpanded);
-    
-    Animated.spring(expandAnim, {
-      toValue,
-      friction: 8,
-      tension: 40,
-      useNativeDriver: false
-    }).start();
+  const handleSliderStart = () => {
+    setIsSeeking(true);
+  };
+
+  const handleSliderChange = (value: number) => {
+    setPosition(value);
+  };
+
+  const handleSliderComplete = async (value: number) => {
+    setIsSeeking(false);
+    if (globalSound) {
+      await globalSound.setPositionAsync(value);
+    }
   };
 
   const formatTime = (millis: number) => {
@@ -99,179 +204,228 @@ export default function AudioPlayer({ audioFile, onClose }: AudioPlayerProps) {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const expandedHeight = expandAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [56, 140]
-  });
-
-  const progressWidth = duration > 0 ? (position / duration) * 100 : 0;
+  if (!visible) return null;
 
   return (
-    <Animated.View style={[styles.container, { height: expandedHeight }]}>
-      <View style={styles.mainRow}>
-        <TouchableOpacity 
-          style={styles.mainButton} 
-          onPress={togglePlayPause}
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      onRequestClose={handleClose}
+    >
+      <Animated.View style={[styles.overlay, { opacity: opacityAnim }]}>
+        <TouchableOpacity
+          style={styles.overlayTouchable}
+          activeOpacity={1}
+          onPress={handleClose}
+        />
+
+        <Animated.View
+          style={[
+            styles.modalContainer,
+            { transform: [{ translateY: slideAnim }] }
+          ]}
         >
-          <Ionicons
-            name={isPlaying ? 'pause' : 'play'}
-            size={20}
-            color="#FFFFFF"
-          />
-        </TouchableOpacity>
+          <BlurView intensity={90} tint="dark" style={styles.blurContainer}>
+            <View style={styles.handle} />
 
-        <TouchableOpacity 
-          style={styles.expandButton}
-          onPress={toggleExpand}
-        >
-          <Ionicons
-            name={isExpanded ? 'chevron-down' : 'chevron-up'}
-            size={18}
-            color="rgba(255,255,255,0.7)"
-          />
-        </TouchableOpacity>
-
-        {onClose && (
-          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Ionicons name="close" size={20} color="rgba(255,255,255,0.7)" />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {isExpanded && (
-        <View style={styles.expandedContent}>
-          <View style={styles.progressContainer}>
-            <View style={styles.progressBar}>
-              <View 
-                style={[styles.progressFill, { width: `${progressWidth}%` }]} 
-              />
+            <View style={styles.header}>
+              <View style={styles.headerInfo}>
+                <View style={styles.audioBadge}>
+                  <Ionicons name="musical-notes" size={14} color="#1B4D3E" />
+                </View>
+                <View style={styles.headerTextContainer}>
+                  <Text style={styles.headerLabel}>Audioprzewodnik</Text>
+                  <Text style={styles.headerTitle} numberOfLines={2}>
+                    {title}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={handleClose}
+              >
+                <Ionicons
+                  name="close"
+                  size={22}
+                  color="rgba(255,255,255,0.7)"
+                />
+              </TouchableOpacity>
             </View>
-            <View style={styles.timeRow}>
-              <Text style={styles.timeText}>{formatTime(position)}</Text>
-              <Text style={styles.timeText}>{formatTime(duration)}</Text>
-            </View>
-          </View>
 
-          <View style={styles.controlsRow}>
-            <TouchableOpacity 
-              style={styles.controlButton}
-              onPress={skipBackward}
-            >
-              <Ionicons name="play-back" size={24} color="#FFFFFF" />
-              <Text style={styles.skipText}>10s</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.mainPlayButton}
-              onPress={togglePlayPause}
-            >
-              <Ionicons
-                name={isPlaying ? 'pause' : 'play'}
-                size={28}
-                color="#FFFFFF"
+            <View style={styles.progressSection}>
+              <Slider
+                style={styles.slider}
+                minimumValue={0}
+                maximumValue={duration || 1}
+                value={position}
+                onSlidingStart={handleSliderStart}
+                onValueChange={handleSliderChange}
+                onSlidingComplete={handleSliderComplete}
+                minimumTrackTintColor="#4ADE80"
+                maximumTrackTintColor="rgba(255, 255, 255, 0.2)"
+                thumbTintColor="#FFFFFF"
               />
-            </TouchableOpacity>
+              <View style={styles.timeRow}>
+                <Text style={styles.timeText}>{formatTime(position)}</Text>
+                <Text style={styles.timeText}>{formatTime(duration)}</Text>
+              </View>
+            </View>
 
-            <TouchableOpacity 
-              style={styles.controlButton}
-              onPress={skipForward}
-            >
-              <Ionicons name="play-forward" size={24} color="#FFFFFF" />
-              <Text style={styles.skipText}>10s</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-    </Animated.View>
+            <View style={styles.controlsSection}>
+              <TouchableOpacity
+                style={styles.skipButton}
+                onPress={skipBackward}
+              >
+                <Ionicons name="play-back" size={28} color="#FFFFFF" />
+                <Text style={styles.skipText}>10s</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.playButton}
+                onPress={togglePlayPause}
+                disabled={!isLoaded}
+              >
+                <Ionicons
+                  name={isPlaying ? 'pause' : 'play'}
+                  size={36}
+                  color="#FFFFFF"
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.skipButton} onPress={skipForward}>
+                <Ionicons name="play-forward" size={28} color="#FFFFFF" />
+                <Text style={styles.skipText}>10s</Text>
+              </TouchableOpacity>
+            </View>
+          </BlurView>
+        </Animated.View>
+      </Animated.View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'flex-end'
+  },
+  overlayTouchable: {
+    flex: 1
+  },
+  modalContainer: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     overflow: 'hidden'
   },
-  mainRow: {
+  blurContainer: {
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    paddingHorizontal: 20
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 24
+  },
+  headerInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8
-  },
-  mainButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#1B4D3E',
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  expandButton: {
     flex: 1,
-    height: 40,
+    gap: 12
+  },
+  audioBadge: {
+    width: 44,
+    height: 44,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#4ADE80',
     justifyContent: 'center',
     alignItems: 'center'
+  },
+  headerTextContainer: {
+    flex: 1
+  },
+  headerLabel: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontWeight: '500',
+    marginBottom: 2
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    lineHeight: 22
   },
   closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+    marginLeft: 12
   },
-  expandedContent: {
-    marginTop: 16
+  progressSection: {
+    marginBottom: 24
   },
-  progressContainer: {
-    marginBottom: 16
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 2,
-    overflow: 'hidden'
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#4ADE80',
-    borderRadius: 2
+  slider: {
+    width: '100%',
+    height: 40
   },
   timeRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 8
+    marginTop: 4,
+    paddingHorizontal: 4
   },
   timeText: {
-    fontSize: 11,
+    fontSize: 12,
     color: 'rgba(255, 255, 255, 0.6)',
     fontWeight: '500'
   },
-  controlsRow: {
+  controlsSection: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 24
+    gap: 32
   },
-  controlButton: {
+  skipButton: {
     alignItems: 'center',
     gap: 4
   },
   skipText: {
-    fontSize: 10,
+    fontSize: 11,
     color: 'rgba(255, 255, 255, 0.6)',
     fontWeight: '600'
   },
-  mainPlayButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  playButton: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: '#1B4D3E',
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#1B4D3E',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 12
+      },
+      android: {
+        elevation: 8
+      }
+    })
   }
 });

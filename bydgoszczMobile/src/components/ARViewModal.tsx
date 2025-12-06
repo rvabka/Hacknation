@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import AudioPlayer from './AudioPlayer';
+import AudioPlayerModal, { stopAndUnloadAudio } from './AudioPlayer';
 
 import {
   View,
@@ -24,20 +24,13 @@ import * as Device from 'expo-device';
 import { Gyroscope } from 'expo-sensors';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import {
+  SafeAreaView,
+  useSafeAreaInsets
+} from 'react-native-safe-area-context';
+import { Attraction } from '../data/attractions';
 
 LogBox.ignoreLogs(["THREE.GLTFLoader: Couldn't load texture"]);
-
-interface Attraction {
-  id: string;
-  title: string;
-  description: string;
-  rating: number;
-  location: string;
-  coordinate: {
-    latitude: number;
-    longitude: number;
-  };
-}
 
 interface ARViewModalProps {
   visible: boolean;
@@ -50,12 +43,14 @@ export default function ARViewModal({
   attraction,
   onClose
 }: ARViewModalProps) {
+  const insets = useSafeAreaInsets();
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSimulator, setIsSimulator] = useState(false);
   const [isPlaced, setIsPlaced] = useState(false);
   const [showTutorial, setShowTutorial] = useState(true);
+  const [showAudioModal, setShowAudioModal] = useState(false);
 
   const gyroSubscription = useRef<any>(null);
   const cameraRotation = useRef({ x: 0, y: 0, z: 0 });
@@ -69,10 +64,28 @@ export default function ARViewModal({
   const cardSlide = useRef(new Animated.Value(100)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
 
+  // Sprawdź czy atrakcja ma mp3
+  const hasAudio = !!attraction.mp3;
+  const hasModel = !!attraction.model;
+
+  // Funkcja zamykająca AR z zatrzymaniem audio
+  const handleCloseAR = async () => {
+    // Zamknij modal audio jeśli otwarty
+    setShowAudioModal(false);
+
+    // Zatrzymaj i wyczyść audio
+    await stopAndUnloadAudio();
+
+    // Zamknij AR modal
+    onClose();
+  };
+
   useEffect(() => {
     if (visible) {
       setIsPlaced(false);
       setShowTutorial(true);
+      setIsLoading(true);
+      setError(null);
       cameraRotation.current = { x: 0, y: 0, z: 0 };
       panRotationRef.current = 0;
 
@@ -209,6 +222,12 @@ export default function ARViewModal({
   ).current;
 
   const onContextCreate = async (gl: any) => {
+    if (!hasModel) {
+      setError('Brak modelu 3D dla tej atrakcji');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const { drawingBufferWidth: width, drawingBufferHeight: height } = gl;
 
@@ -229,7 +248,7 @@ export default function ARViewModal({
       scene.add(directionalLight);
 
       try {
-        const asset = Asset.fromModule(require('../../assets/lucznik2.glb'));
+        const asset = Asset.fromModule(attraction.model);
         await asset.downloadAsync();
 
         const response = await fetch(asset.localUri || asset.uri);
@@ -359,7 +378,7 @@ export default function ARViewModal({
       visible={visible}
       animationType="slide"
       presentationStyle="fullScreen"
-      onRequestClose={onClose}
+      onRequestClose={handleCloseAR}
     >
       <View style={styles.container}>
         {hasPermission === null ? (
@@ -375,7 +394,10 @@ export default function ARViewModal({
               <Text style={styles.errorSubtitle}>
                 Włącz dostęp do kamery w ustawieniach, aby korzystać z AR
               </Text>
-              <TouchableOpacity style={styles.primaryButton} onPress={onClose}>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={handleCloseAR}
+              >
                 <Text style={styles.primaryButtonText}>Powrót</Text>
               </TouchableOpacity>
             </View>
@@ -385,7 +407,10 @@ export default function ARViewModal({
             <View style={styles.errorCard}>
               <Ionicons name="alert-circle-outline" size={48} color="#DC2626" />
               <Text style={styles.errorTitle}>{error}</Text>
-              <TouchableOpacity style={styles.primaryButton} onPress={onClose}>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={handleCloseAR}
+              >
                 <Text style={styles.primaryButtonText}>Powrót</Text>
               </TouchableOpacity>
             </View>
@@ -400,34 +425,43 @@ export default function ARViewModal({
               {...panResponder.panHandlers}
             />
 
-            <View style={styles.header}>
+            <SafeAreaView
+              style={[styles.header, { paddingTop: insets.top - 15 }]}
+            >
               <BlurView intensity={80} tint="dark" style={styles.headerBlur}>
                 <View style={styles.headerContent}>
-  <View style={styles.headerLeft}>
-    <View style={styles.arBadge}>
-      <Text style={styles.arBadgeText}>AR</Text>
-    </View>
-    <View>
-      <Text style={styles.headerTitle}>{attraction.title}</Text>
-      <Text style={styles.headerSubtitle}>
-        {isPlaced ? 'Widok aktywny' : 'Ładowanie...'}
-      </Text>
-    </View>
-  </View>
-  <View style={styles.headerRight}>
-    <AudioPlayer 
-      audioFile={require('../../assets/audio/wiezacisnien.mp3')}
-    />
-    <TouchableOpacity
-      style={styles.closeButton}
-      onPress={onClose}
-    >
-      <Ionicons name="close" size={24} color="#FFFFFF" />
-    </TouchableOpacity>
-  </View>
-</View>
+                  <View style={styles.headerLeft}>
+                    <View style={styles.arBadge}>
+                      <Text style={styles.arBadgeText}>AR</Text>
+                    </View>
+                    <View style={styles.titleContainer}>
+                      <Text style={styles.headerTitle} numberOfLines={1}>
+                        {attraction.title}
+                      </Text>
+                      <Text style={styles.headerSubtitle}>
+                        {isPlaced ? 'Widok aktywny' : 'Ładowanie...'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.headerButtons}>
+                    {hasAudio && (
+                      <TouchableOpacity
+                        style={styles.audioButton}
+                        onPress={() => setShowAudioModal(true)}
+                      >
+                        <Ionicons name="headset" size={20} color="#4ADE80" />
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity
+                      style={styles.closeButton}
+                      onPress={handleCloseAR}
+                    >
+                      <Ionicons name="close" size={22} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </BlurView>
-            </View>
+            </SafeAreaView>
 
             {isLoading && (
               <View style={styles.loadingOverlay}>
@@ -471,6 +505,7 @@ export default function ARViewModal({
                 style={[
                   styles.infoCardContainer,
                   {
+                    bottom: insets.bottom + 20,
                     opacity: cardOpacity,
                     transform: [{ translateY: cardSlide }]
                   }
@@ -482,12 +517,24 @@ export default function ARViewModal({
                       <Ionicons name="cube-outline" size={20} color="#FFFFFF" />
                     </View>
                     <View style={styles.infoTitleContainer}>
-                      <Text style={styles.infoTitle}>{attraction.title}</Text>
+                      <Text style={styles.infoTitle} numberOfLines={1}>
+                        {attraction.title}
+                      </Text>
                       <View style={styles.locationRow}>
                         <Ionicons name="location" size={12} color="#4ADE80" />
                         <Text style={styles.infoLocation}>
                           {attraction.location}
                         </Text>
+                        {hasAudio && (
+                          <View style={styles.audioBadge}>
+                            <Ionicons
+                              name="musical-notes"
+                              size={10}
+                              color="#4ADE80"
+                            />
+                            <Text style={styles.audioBadgeText}>Audio</Text>
+                          </View>
+                        )}
                       </View>
                     </View>
                   </View>
@@ -514,6 +561,15 @@ export default function ARViewModal({
                 </View>
               </Animated.View>
             )}
+
+            {hasAudio && (
+              <AudioPlayerModal
+                visible={showAudioModal}
+                audioFile={attraction.mp3}
+                title={attraction.title}
+                onClose={() => setShowAudioModal(false)}
+              />
+            )}
           </>
         )}
       </View>
@@ -525,11 +581,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000'
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
   },
   camera: {
     position: 'absolute',
@@ -608,9 +659,8 @@ const styles = StyleSheet.create({
     zIndex: 10
   },
   headerBlur: {
-    paddingTop: Platform.OS === 'ios' ? 50 : 30,
-    paddingBottom: 16,
-    paddingHorizontal: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     overflow: 'hidden'
   },
   headerContent: {
@@ -621,34 +671,54 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12
+    gap: 10,
+    flex: 1,
+    marginRight: 12
   },
   arBadge: {
     backgroundColor: '#4ADE80',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6
   },
   arBadgeText: {
     color: '#1B4D3E',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800'
   },
+  titleContainer: {
+    flex: 1
+  },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF'
   },
   headerSubtitle: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.7)',
-    marginTop: 2
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.6)',
+    marginTop: 1
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  audioButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(74, 222, 128, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(74, 222, 128, 0.3)'
   },
   closeButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.15)',
     justifyContent: 'center',
     alignItems: 'center'
   },
@@ -716,16 +786,15 @@ const styles = StyleSheet.create({
   },
   infoCardContainer: {
     position: 'absolute',
-    bottom: 20,
     left: 16,
     right: 16
   },
   infoCard: {
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)'
+    borderColor: 'rgba(255, 255, 255, 0.15)'
   },
   infoHeader: {
     flexDirection: 'row',
@@ -759,6 +828,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#4ADE80',
     fontWeight: '500'
+  },
+  audioBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(74, 222, 128, 0.2)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 8
+  },
+  audioBadgeText: {
+    fontSize: 10,
+    color: '#4ADE80',
+    fontWeight: '600'
   },
   controlsRow: {
     flexDirection: 'row',
