@@ -31,7 +31,10 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.bydgoszcz.mobile",
-      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
       "config": {
         "googleMaps": {
           "apiKey": "IfGiBsZ0PUv6xfgDrzcwLhgcCeU="
@@ -47,7 +50,8 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Zezwól aplikacji Bydgoszcz Mobile na dostęp do Twojej lokalizacji."
         }
-      ]
+      ],
+      "expo-asset"
     ]
   }
 }
