@@ -222,7 +222,7 @@ export default function MapScreen({ navigation }: MapTabScreenProps) {
           style={[
             styles.infoCardContainer,
             {
-              bottom: insets.bottom - 20,
+              bottom: insets.bottom + 6k0,
               opacity: cardOpacity,
               transform: [{ translateY: cardTranslateY }, { scale: cardScale }]
             }
