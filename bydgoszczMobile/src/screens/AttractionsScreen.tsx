@@ -113,7 +113,7 @@ export default function AttractionsScreen({
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.screenHeader}>
-          <Text style={styles.screenTitle}>Odkryj Bydgoszcz</Text>
+          
           
         </View>
 
@@ -122,7 +122,16 @@ export default function AttractionsScreen({
             key={attraction.id}
             style={styles.card}
             activeOpacity={0.9}
-            onPress={() => navigation.navigate('Details', attraction)}
+            onPress={() => {
+              // @ts-ignore - Navigate to Details screen (ensure it's defined in your navigator)
+              navigation.navigate('Details', {
+                id: attraction.id,
+                title: attraction.title,
+                description: attraction.description,
+                rating: attraction.rating,
+                location: attraction.location
+              });
+            }}
           >
             <View style={styles.imageContainer}>
               <Image
@@ -210,8 +219,8 @@ const styles = StyleSheet.create({
   screenHeader: {
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 40,
-    marginBottom: 24,
+    marginTop: 10,
+    marginBottom: 5,
   },
   screenTitle: {
     marginBottom: 30,
