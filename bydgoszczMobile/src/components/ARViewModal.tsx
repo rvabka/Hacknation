@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
+import AudioPlayer from './AudioPlayer';
+
 import {
   View,
   Text,
@@ -401,24 +403,29 @@ export default function ARViewModal({
             <View style={styles.header}>
               <BlurView intensity={80} tint="dark" style={styles.headerBlur}>
                 <View style={styles.headerContent}>
-                  <View style={styles.headerLeft}>
-                    <View style={styles.arBadge}>
-                      <Text style={styles.arBadgeText}>AR</Text>
-                    </View>
-                    <View>
-                      <Text style={styles.headerTitle}>{attraction.title}</Text>
-                      <Text style={styles.headerSubtitle}>
-                        {isPlaced ? 'Widok aktywny' : 'Ładowanie...'}
-                      </Text>
-                    </View>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.closeButton}
-                    onPress={onClose}
-                  >
-                    <Ionicons name="close" size={24} color="#FFFFFF" />
-                  </TouchableOpacity>
-                </View>
+  <View style={styles.headerLeft}>
+    <View style={styles.arBadge}>
+      <Text style={styles.arBadgeText}>AR</Text>
+    </View>
+    <View>
+      <Text style={styles.headerTitle}>{attraction.title}</Text>
+      <Text style={styles.headerSubtitle}>
+        {isPlaced ? 'Widok aktywny' : 'Ładowanie...'}
+      </Text>
+    </View>
+  </View>
+  <View style={styles.headerRight}>
+    <AudioPlayer 
+      audioFile={require('../../assets/audio/wiezacisnien.mp3')}
+    />
+    <TouchableOpacity
+      style={styles.closeButton}
+      onPress={onClose}
+    >
+      <Ionicons name="close" size={24} color="#FFFFFF" />
+    </TouchableOpacity>
+  </View>
+</View>
               </BlurView>
             </View>
 
@@ -518,6 +525,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000'
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
   },
   camera: {
     position: 'absolute',

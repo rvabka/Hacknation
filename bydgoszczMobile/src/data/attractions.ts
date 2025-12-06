@@ -10,7 +10,7 @@ export interface Attraction {
     latitude: number;
     longitude: number;
   };
-  // FIX: Typ 'any' akceptuje require(...) oraz URL
+  
   image?: any; 
   category?: string;
   openingHours?: string;

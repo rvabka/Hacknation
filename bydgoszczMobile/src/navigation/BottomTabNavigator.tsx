@@ -58,7 +58,7 @@ export default function BottomTabNavigator() {
           elevation: 0,
           shadowOpacity: 0,
           borderBottomWidth: 0,
-          height: 120,
+          height: 110,
         },
         headerTintColor: '#1B4D3E',
         headerTitleStyle: {
