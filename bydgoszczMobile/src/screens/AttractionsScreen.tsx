@@ -34,7 +34,7 @@ const attractions = [
   {
     id: '2',
     title: 'Wyspa Młyńska',
-    image: { uri: 'https://images.unsplash.com/photo-1679396165867-d40224e22039?q=80&w=1000&auto=format&fit=crop' },
+    image: require('../../assets/mistrztwardowski.jpeg'),
     description: 'Malownicza wyspa nad Brdą, idealna na spacery i relaks.',
     rating: 4.7,
     location: 'Śródmieście',
