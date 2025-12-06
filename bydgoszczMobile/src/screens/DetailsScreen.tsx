@@ -1,62 +1,38 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
-import type { RootStackScreenProps } from '../navigation/types';
+import type { DetailsScreenProps } from '../navigation/types';
 
-type Props = RootStackScreenProps<'Details'>;
-
-export default function DetailsScreen({ route, navigation }: Props) {
-  const { itemId, title } = route.params;
+export default function DetailsScreen({
+  route,
+  navigation
+}: DetailsScreenProps) {
+  const { title, description, rating, location } = route.params;
 
   return (
     <ScrollView className="flex-1 bg-white">
-      <View className="flex-1 p-6">
-        <View className="bg-blue-50 p-6 rounded-lg mb-6">
-          <Text className="text-2xl font-bold text-gray-800 mb-2">
-            {title || 'Szczegóły'}
-          </Text>
-          <Text className="text-sm text-gray-500">ID: {itemId}</Text>
+      <View className="p-6">
+        <Text className="text-3xl font-bold text-gray-800 mb-4">{title}</Text>
+
+        <View className="bg-blue-50 p-4 rounded-xl mb-4">
+          <Text className="text-lg text-gray-700 mb-2">📝 {description}</Text>
         </View>
 
-        <View className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-          <Text className="text-lg font-semibold text-gray-800 mb-2">
-            📍 Lokalizacja
-          </Text>
-          <Text className="text-gray-600">Bydgoszcz, centrum miasta</Text>
+        <View className="flex-row items-center mb-4">
+          <Text className="text-2xl mr-2">⭐</Text>
+          <Text className="text-xl font-bold text-gray-800">{rating}</Text>
         </View>
 
-        <View className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-          <Text className="text-lg font-semibold text-gray-800 mb-2">
-            ℹ️ Informacje
-          </Text>
-          <Text className="text-gray-600 leading-6">
-            To jest przykładowy ekran szczegółów. Tutaj możesz wyświetlić więcej
-            informacji o wybranej atrakcji, zdjęcia, opinie użytkowników i wiele
-            więcej.
-          </Text>
-        </View>
-
-        <View className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
-          <Text className="text-lg font-semibold text-gray-800 mb-2">
-            ⭐ Ocena
-          </Text>
-          <Text className="text-2xl font-bold text-yellow-500">4.8 / 5.0</Text>
+        <View className="flex-row items-center mb-6">
+          <Text className="text-2xl mr-2">📍</Text>
+          <Text className="text-lg text-gray-600">{location}</Text>
         </View>
 
         <TouchableOpacity
-          className="bg-blue-500 p-4 rounded-lg shadow-lg active:bg-blue-600 mb-4"
+          className="bg-blue-500 p-4 rounded-xl"
           onPress={() => navigation.goBack()}
         >
-          <Text className="text-white text-center font-semibold text-lg">
+          <Text className="text-white text-center font-bold text-lg">
             ← Powrót
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          className="bg-green-500 p-4 rounded-lg shadow-lg active:bg-green-600"
-          onPress={() => navigation.navigate('Home')}
-        >
-          <Text className="text-white text-center font-semibold text-lg">
-            🏠 Strona Główna
           </Text>
         </TouchableOpacity>
       </View>

@@ -1,16 +1,37 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import type { CompositeScreenProps } from '@react-navigation/native';
 
-export type RootStackParamList = {
-  Home: undefined;
-  Details: { itemId: string; title?: string };
-  Profile: { userId: string };
+// Bottom Tab Navigator
+export type BottomTabParamList = {
+  MapTab: undefined;
+  AttractionsTab: undefined;
 };
 
-export type RootStackScreenProps<T extends keyof RootStackParamList> =
-  NativeStackScreenProps<RootStackParamList, T>;
+// Stack Navigator (dla Details)
+export type RootStackParamList = {
+  MainTabs: undefined;
+  Details: {
+    id: string;
+    title: string;
+    description: string;
+    rating: number;
+    location: string;
+  };
+};
 
-declare global {
-  namespace ReactNavigation {
-    interface RootParamList extends RootStackParamList {}
-  }
-}
+// Screen Props
+export type MapTabScreenProps = CompositeScreenProps<
+  BottomTabScreenProps<BottomTabParamList, 'MapTab'>,
+  NativeStackScreenProps<RootStackParamList>
+>;
+
+export type AttractionsTabScreenProps = CompositeScreenProps<
+  BottomTabScreenProps<BottomTabParamList, 'AttractionsTab'>,
+  NativeStackScreenProps<RootStackParamList>
+>;
+
+export type DetailsScreenProps = NativeStackScreenProps<
+  RootStackParamList,
+  'Details'
+>;

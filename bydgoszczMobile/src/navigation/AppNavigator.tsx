@@ -3,8 +3,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { RootStackParamList } from './types';
 
-// Screens
-import { HomeScreen, DetailsScreen, ProfileScreen } from '../screens';
+import BottomTabNavigator from './BottomTabNavigator';
+import DetailsScreen from '../screens/DetailsScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -12,36 +12,24 @@ export default function AppNavigator() {
   return (
     <NavigationContainer>
       <Stack.Navigator
-        initialRouteName="Home"
         screenOptions={{
-          headerStyle: {
-            backgroundColor: '#3b82f6'
-          },
-          headerTintColor: '#fff',
-          headerTitleStyle: {
-            fontWeight: 'bold'
-          }
+          headerShown: false
         }}
       >
-        <Stack.Screen
-          name="Home"
-          component={HomeScreen}
-          options={{
-            title: 'Bydgoszcz Mobile'
-          }}
-        />
+        <Stack.Screen name="MainTabs" component={BottomTabNavigator} />
         <Stack.Screen
           name="Details"
           component={DetailsScreen}
           options={{
-            title: 'Szczegóły'
-          }}
-        />
-        <Stack.Screen
-          name="Profile"
-          component={ProfileScreen}
-          options={{
-            title: 'Profil'
+            headerShown: true,
+            title: 'Szczegóły',
+            headerStyle: {
+              backgroundColor: '#3b82f6'
+            },
+            headerTintColor: '#fff',
+            headerTitleStyle: {
+              fontWeight: 'bold'
+            }
           }}
         />
       </Stack.Navigator>
