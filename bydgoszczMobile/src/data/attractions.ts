@@ -49,7 +49,7 @@ export const attractions: Attraction[] = [
   {
     id: '1',
     title: 'Rzeźba Łuczniczki',
-    image: require('../../assets/lucznik.jpeg'),
+    image: require('../../assets/lucznik.jpeg'), // Zachowany oryginalny import
     description:
       'Jeden z najbardziej rozpoznawalnych symboli Bydgoszczy. Smukła rzeźba dłuta Ferdinanda Lepckego, stojąca w parku Jana Kochanowskiego.',
     location: 'Park Kochanowskiego',
@@ -58,10 +58,10 @@ export const attractions: Attraction[] = [
     yearBuilt: '1910',
     architect: 'Ferdinand Lepcke',
     funFacts: [
-      'Oryginalna rzeźba znajduje się w Berlinie – bydgoska to odlew z 1910 roku',
-      'Wysokość figury wraz z cokołem to ponad 3 metry',
-      'Łuczniczka stała się oficjalnym symbolem miasta w latach 60. XX wieku',
-      'Rzeźba przetrwała II wojnę światową ukryta przez mieszkańców'
+      'Oryginalna rzeźba (odlew) znajduje się we **Frankfurcie nad Odrą** (poprzednio błędnie: Berlin).',
+      'Wysokość figury wraz z cokołem to ponad 3 metry.',
+      'Łuczniczka stała się oficjalnym symbolem miasta w latach 60. XX wieku.',
+      'Rzeźba przetrwała II wojnę światową ukryta przez mieszkańców.'
     ],
     mp3: require('../../assets/audio/lucznik.mp3'),
     model: require('../../assets/models/lucznik2.glb'),
@@ -71,20 +71,20 @@ export const attractions: Attraction[] = [
   },
   {
     id: '2',
-    title: 'Wioślarz "Na mecie"',
-    image: require('../../assets/wioslarz.jpeg'),
+    title: 'Przechodzący przez rzekę', // Tytuł zmieniony dla spójności i poprawności historycznej
+    image: require('../../assets/wioslarz.jpeg'), // Zachowany oryginalny import (wcześniej Wioślarz)
     description:
-      'Rzeźba usytuowana nad Brdą, upamiętniająca Teodora Kocerkę – wybitnego bydgoskiego wioślarza.',
-    location: 'Wyspa Młyńska',
+      'Słynna rzeźba-instalacja na linie nad Brdą, symbolizująca wejście Polski do Unii Europejskiej.',
+    location: 'Most im. Jerzego Sulimy-Kamińskiego',
     coordinate: { latitude: 53.123425, longitude: 18.00199 },
     category: 'Rzeźba',
-    yearBuilt: '2007',
-    architect: 'Robert Sobociński',
+    yearBuilt: '2004',
+    architect: 'Jerzy Kędziora',
     funFacts: [
-      'Teodor Kocerka zdobył złoty medal na Olimpiadzie w Berlinie w 1936 roku',
-      'Rzeźba waży ponad 300 kg i jest wykonana z brązu',
-      'Bydgoszcz to "stolica polskiego wioślarstwa"',
-      'Regaty na Brdzie organizowane są nieprzerwanie od 1881 roku'
+      'Rzeźba została odsłonięta w dniu wejścia Polski do UE (1 maja 2004 r.).',
+      'W przeciwieństwie do reszty rzeźb, jest to instalacja balansująca, ważąca ok. **50 kg**.',
+      'Jej wysokość nad rzeką może się nieznacznie zmieniać w zależności od pogody.',
+      'Rzeźba jest symbolicznym "Przechodzącym przez rzekę" na linie o długości 20 metrów.'
     ],
     hasAR: false,
     hasAudio: false,
@@ -101,10 +101,10 @@ export const attractions: Attraction[] = [
     category: 'Zabytek techniki',
     yearBuilt: '1915',
     funFacts: [
-      'Kanał Bydgoski to najstarszy czynny kanał w Polsce (1774)',
-      'Śluza pokonuje różnicę poziomów wody wynoszącą 2,5 metra',
-      'Rocznie przepływa przez nią około 3000 jednostek pływających',
-      'Jest częścią międzynarodowej drogi wodnej E70'
+      'Kanał Bydgoski to najstarszy czynny kanał w Polsce (1774).',
+      'Śluza pokonuje różnicę poziomów wody wynoszącą **około 3 metry**.', // Korekta z 2,5m
+      'Rocznie przepływa przez nią około 3000 jednostek pływających.',
+      'Jest częścią międzynarodowej drogi wodnej E70.'
     ],
     hasAR: false,
     hasAudio: false,
@@ -121,10 +121,10 @@ export const attractions: Attraction[] = [
     category: 'Architektura',
     yearBuilt: '1885',
     funFacts: [
-      'To jeden z najstarszych budynków pocztowych w Polsce wciąż pełniący swoją funkcję',
-      'Fasada łączy elementy neogotyku i neorenesansu',
-      'W czasach zaborów był głównym węzłem pocztowym Prus Zachodnich',
-      'Budynek przetrwał obie wojny światowe niemal nienaruszony'
+      'To jeden z najstarszych budynków pocztowych w Polsce wciąż pełniący swoją funkcję.',
+      'Fasada łączy elementy neogotyku i neorenesansu.',
+      'W czasach zaborów był głównym węzłem pocztowym Prus Zachodnich.',
+      'Budynek przetrwał obie wojny światowe niemal nienaruszony.'
     ],
     model: require('../../assets/models/poczta.glb'),
     mp3: require('../../assets/audio/poczta.mp3'),
@@ -144,15 +144,15 @@ export const attractions: Attraction[] = [
     yearBuilt: '1900',
     architect: 'Heinrich Seeling',
     funFacts: [
-      'Wysokość wieży to 45 metrów – z tarasu widać całą panoramę miasta',
-      'Zbiornik mieścił 2000 m³ wody',
-      'Jest jedną z najlepiej zachowanych wież ciśnień w Polsce',
-      'Nocą wieża jest podświetlana'
+      'Wysokość wieży to **48,5 metra** – z tarasu widać całą panoramę miasta.', // Korekta wysokości
+      'Zbiornik mieścił 2000 m³ wody.',
+      'Jest jedną z najlepiej zachowanych wież ciśnień w Polsce.',
+      'Nocą wieża jest podświetlana.'
     ],
     openingHours: 'Wt-Nd: 10:00-18:00',
     price: '15 zł / 10 zł',
     mp3: require('../../assets/audio/wiezacisnien.mp3'),
-    model: require('../../assets/models/wiezacisnien.glb'),
+    model: require('../../assets/models/wieza.glb'),
     hasAR: true,
     hasAudio: true,
     hasAI: true
@@ -168,10 +168,10 @@ export const attractions: Attraction[] = [
     category: 'Sakralny',
     yearBuilt: '1618',
     funFacts: [
-      'Kasetonowy strop składa się z 117 malowanych pól z XVII wieku',
-      'Klasztor klarysek był jednym z najbogatszych w Rzeczypospolitej',
-      'W kościele znajduje się cudowny obraz Matki Bożej Bydgoskiej z 1467 roku',
-      'Budowla przetrwała "potop szwedzki"'
+      'Kasetonowy strop składa się z 117 malowanych pól z XVII wieku.',
+      'Klasztor klarysek był jednym z najbogatszych w Rzeczypospolitej.',
+      'Wyróżnia się **unikalną w Polsce polichromią i ołtarzem głównym w stylu manieryzmu**.', // Poprawiony fakt
+      'Budowla przetrwała "potop szwedzki".'
     ],
     openingHours: 'Codziennie: 6:00-19:00',
     hasAR: false,
@@ -189,10 +189,10 @@ export const attractions: Attraction[] = [
     category: 'Architektura',
     yearBuilt: '1653',
     funFacts: [
-      'Pierwotnie był siedzibą jezuitów, ratuszem stał się w 1773 roku',
-      'Fasada w stylu baroku niderlandzkiego jest unikatowa w tej części Polski',
-      'Z wieży codziennie o 13:00 grany jest hejnał miejski',
-      'W piwnicach zachowały się oryginalne sklepienia z XVII wieku'
+      'Pierwotnie był siedzibą jezuitów, ratuszem stał się w 1773 roku.',
+      'Fasada w stylu baroku niderlandzkiego jest unikatowa w tej części Polski.',
+      'Z wieży codziennie o 13:00 grany jest hejnał miejski.',
+      'W piwnicach zachowały się oryginalne sklepienia z XVII wieku.'
     ],
     openingHours: 'Pn-Pt: 8:00-16:00',
     hasAR: false,
@@ -210,10 +210,10 @@ export const attractions: Attraction[] = [
     category: 'Sakralny',
     yearBuilt: '1557',
     funFacts: [
-      'To najstarszy zachowany kościół w Bydgoszczy',
-      'Gotyckie sklepienie gwiaździste jest dziełem mistrza toruńskiego',
-      'Podczas II wojny światowej kościół służył jako magazyn',
-      'W krypcie pochowani są polscy żołnierze'
+      'To **jeden z najstarszych** zachowanych kościołów w Bydgoszczy.', // Zmiana na bezpieczną frazę
+      'Gotyckie sklepienie gwiaździste jest dziełem mistrza toruńskiego.',
+      'W krypcie pochowani są polscy żołnierze.',
+      'Nazwa Garnizonowy pochodzi od przejęcia kościoła przez wojsko po II wojnie światowej.' // Poprawiony fakt
     ],
     openingHours: 'Codziennie: 7:00-18:00',
     hasAR: false,
@@ -232,10 +232,10 @@ export const attractions: Attraction[] = [
     yearBuilt: '1904',
     architect: 'Ferdinand Lepcke',
     funFacts: [
-      'Oryginalna fontanna została zniszczona podczas II wojny światowej',
-      'Rekonstrukcja kosztowała ponad 2 miliony złotych',
-      'Przedstawia scenę z Księgi Rodzaju',
-      'Jest jedną z największych fontann figuralnych w Polsce'
+      'Oryginalna fontanna została zniszczona podczas II wojny światowej.',
+      'Rekonstrukcja, prowadzona z udziałem darczyńców, kosztowała **ponad 10 milionów złotych**.', // Poprawiona kwota
+      'Przedstawia scenę z Księgi Rodzaju.',
+      'Jest jedną z największych fontann figuralnych w Polsce.'
     ],
     hasAR: false,
     hasAudio: false,
@@ -253,10 +253,10 @@ export const attractions: Attraction[] = [
     yearBuilt: '1906',
     architect: 'Heinrich Seeling',
     funFacts: [
-      'Stalowa konstrukcja dachu waży ponad 200 ton',
-      'W latach świetności handlowało tu ponad 100 kupców',
-      'Po rewitalizacji w 2016 r. stała się food hallem',
-      'Witraże w oknach są replikami oryginalnych z początku XX wieku'
+      'Stalowa konstrukcja dachu waży ponad 200 ton.',
+      'W latach świetności handlowało tu ponad 100 kupców.',
+      'Po rewitalizacji w 2016 r. stała się popularnym food hallem.',
+      'Witraże w oknach są replikami oryginalnych z początku XX wieku.'
     ],
     openingHours: 'Pn-Sb: 10:00-22:00, Nd: 10:00-20:00',
     hasAR: false,
@@ -265,6 +265,5 @@ export const attractions: Attraction[] = [
   }
 ];
 
-// Helper do liczenia atrakcji z AR
 export const getARCount = () => attractions.filter(a => a.model).length;
 export const getAudioCount = () => attractions.filter(a => a.hasAudio).length;

@@ -35,10 +35,8 @@ export default function DetailsScreen({
   const { id, title, description, location } = route.params;
   const insets = useSafeAreaInsets();
 
-  // Znajdź pełne dane atrakcji
   const attraction = attractions.find(a => a.id === id);
 
-  // Modals state
   const [showAudioModal, setShowAudioModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
   const [showARModal, setShowARModal] = useState(false);
@@ -114,14 +112,12 @@ export default function DetailsScreen({
     return null;
   }
 
-  // Oblicz bottom padding dla ScrollView
   const bottomPadding = 20 + insets.bottom;
 
   return (
     <View style={styles.mainWrapper}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Animated Background Gradient */}
       <View style={styles.shimmerContainer}>
         <AnimatedGradient
           colors={[
@@ -148,7 +144,6 @@ export default function DetailsScreen({
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero Image */}
         {attraction?.image && (
           <Animated.View
             style={[
@@ -191,14 +186,12 @@ export default function DetailsScreen({
               )}
             </View>
 
-            {/* Category badge */}
             <View style={styles.categoryBadgeHero}>
               <Text style={styles.categoryBadgeText}>
                 {attraction.category}
               </Text>
             </View>
 
-            {/* Year badge */}
             {attraction.yearBuilt && (
               <View style={styles.yearBadgeHero}>
                 <Ionicons name="calendar-outline" size={12} color="#FFFFFF" />
@@ -217,7 +210,6 @@ export default function DetailsScreen({
             }
           ]}
         >
-          {/* Main Info Section */}
           <View style={styles.mainSection}>
             <Text style={styles.title}>{title}</Text>
             <View style={styles.locationRow}>
@@ -226,9 +218,7 @@ export default function DetailsScreen({
             </View>
           </View>
 
-          {/* PRIMARY ACTIONS - Najbardziej widoczne */}
           <View style={styles.primaryActionsSection}>
-            {/* AI Przewodnik - główny CTA */}
             {attraction?.hasAI && (
               <TouchableOpacity
                 style={styles.aiPrimaryButton}
@@ -257,7 +247,6 @@ export default function DetailsScreen({
               </TouchableOpacity>
             )}
 
-            {/* Nawigacja i Mapa - duże przyciski */}
             <View style={styles.navigationButtonsRow}>
               <TouchableOpacity
                 style={styles.navigationButton}
@@ -287,7 +276,6 @@ export default function DetailsScreen({
             </View>
           </View>
 
-          {/* Secondary Quick Actions */}
           <View style={styles.quickActionsSection}>
             {attraction?.hasAR && (
               <TouchableOpacity
@@ -326,7 +314,6 @@ export default function DetailsScreen({
 
           <View style={styles.separator} />
 
-          {/* Description Section */}
           <View style={styles.descriptionSection}>
             <View style={styles.sectionHeader}>
               <Ionicons
@@ -339,7 +326,6 @@ export default function DetailsScreen({
             <Text style={styles.description}>{description}</Text>
           </View>
 
-          {/* Fun Facts Section */}
           {attraction?.funFacts && attraction.funFacts.length > 0 && (
             <>
               <View style={styles.separator} />
@@ -393,7 +379,6 @@ export default function DetailsScreen({
 
           <View style={styles.separator} />
 
-          {/* Quick Info Cards */}
           <View style={styles.quickInfoSection}>
             <Text style={styles.sectionTitle}>Informacje</Text>
 
@@ -440,7 +425,6 @@ export default function DetailsScreen({
             </View>
           </View>
 
-          {/* Architect info if available */}
           {attraction?.architect && (
             <>
               <View style={styles.separator} />
@@ -466,7 +450,6 @@ export default function DetailsScreen({
             </>
           )}
 
-          {/* Tags Section */}
           <View style={styles.tagsSection}>
             <Text style={styles.sectionTitle}>Tagi</Text>
             <View style={styles.tagsRow}>
@@ -491,7 +474,6 @@ export default function DetailsScreen({
         </Animated.View>
       </ScrollView>
 
-      {/* Modals */}
       {attraction?.hasAudio && attraction.mp3 && (
         <AudioPlayerModal
           visible={showAudioModal}
@@ -525,7 +507,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
     position: 'relative',
-    overflow: 'hidden'
+    overflow: 'hidden',
+    paddingTop: 35
   },
   shimmerContainer: {
     ...StyleSheet.absoluteFillObject,

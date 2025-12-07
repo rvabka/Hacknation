@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import ARViewModal from '../components/ARViewModal';
-import type { MapScreenProps } from '../navigation/types';
+import { useAppNavigation } from '../hooks/useAppNavigation';
 import {
   attractions,
   CATEGORY_ICONS,
@@ -37,8 +37,9 @@ const BYDGOSZCZ_COORDS: Region = {
 const CLUSTER_ZOOM_THRESHOLD = 0.025;
 const SELECTED_ZOOM = 0.008;
 
-// Statyczny marker - NIGDY się nie zmienia
-const StaticMarker = React.memo(
+const isAndroid = Platform.OS === 'android';
+
+const IOSMarker = React.memo(
   ({ category, hasModel }: { category: string; hasModel: boolean }) => {
     const color =
       CATEGORY_COLORS[category as keyof typeof CATEGORY_COLORS] || '#4ADE80';
@@ -47,18 +48,88 @@ const StaticMarker = React.memo(
       'location-outline';
 
     return (
-      <View style={styles.markerContainer}>
-        <View style={[styles.marker, hasModel && styles.markerAR]}>
+      <View style={iosStyles.markerContainer}>
+        <View style={[iosStyles.marker, hasModel && iosStyles.markerAR]}>
           <Ionicons name={icon as any} size={18} color={color} />
         </View>
-        {hasModel && <View style={styles.arDot} />}
+        {hasModel && <View style={iosStyles.arDot} />}
       </View>
     );
   },
-  () => true // NIGDY nie re-renderuj
+  () => true
 );
 
-export default function MapScreen({ navigation }: MapScreenProps) {
+const IOSClusterMarker = React.memo(
+  ({ count }: { count: number }) => (
+    <View style={iosStyles.clusterMarker}>
+      <Text style={iosStyles.clusterText}>{count}</Text>
+      <Text style={iosStyles.clusterLabel}>miejsc</Text>
+    </View>
+  ),
+  () => true
+);
+
+const iosStyles = StyleSheet.create({
+  markerContainer: {
+    width: 50,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  marker: {
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8
+  },
+  markerAR: {
+    borderColor: '#4ADE80'
+  },
+  arDot: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#4ADE80',
+    borderWidth: 2,
+    borderColor: 'rgba(0,0,0,0.9)'
+  },
+  clusterMarker: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#4ADE80',
+    shadowColor: '#4ADE80',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 15
+  },
+  clusterText: {
+    color: '#4ADE80',
+    fontSize: 22,
+    fontWeight: '700'
+  },
+  clusterLabel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 10,
+    fontWeight: '500',
+    marginTop: -2
+  }
+});
+
+export default function MapScreen() {
+  const navigation = useAppNavigation();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const cardAnim = useRef(new Animated.Value(0)).current;
@@ -71,6 +142,7 @@ export default function MapScreen({ navigation }: MapScreenProps) {
   } | null>(null);
   const [region, setRegion] = useState<Region>(BYDGOSZCZ_COORDS);
   const [isCardVisible, setIsCardVisible] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
 
   const selectedAttraction = useMemo(
     () => attractions.find(a => a.id === selectedId) || null,
@@ -142,13 +214,11 @@ export default function MapScreen({ navigation }: MapScreenProps) {
       const attraction = attractions.find(a => a.id === id);
       if (!attraction) return;
 
-      // Jeśli kliknięto ten sam marker - zamknij
       if (selectedId === id) {
         animateCard(false, () => setSelectedId(null));
         return;
       }
 
-      // Centruj mapę
       mapRef.current?.animateToRegion(
         {
           latitude: attraction.coordinate.latitude,
@@ -238,56 +308,107 @@ export default function MapScreen({ navigation }: MapScreenProps) {
     ]
   };
 
+  const renderIOSMarkers = useCallback(() => {
+    if (showIndividualMarkers) {
+      return attractions.map(attraction => (
+        <Marker
+          key={`ios-${attraction.id}`}
+          identifier={attraction.id}
+          coordinate={attraction.coordinate}
+          onPress={() => handleMarkerPress(attraction.id)}
+          anchor={{ x: 0.5, y: 0.5 }}
+          tracksViewChanges={false}
+          stopPropagation
+        >
+          <IOSMarker
+            category={attraction.category}
+            hasModel={!!attraction.model}
+          />
+        </Marker>
+      ));
+    }
+
+    return (
+      <Marker
+        key="ios-cluster"
+        coordinate={clusterCenter}
+        onPress={handleClusterPress}
+        anchor={{ x: 0.5, y: 0.5 }}
+        tracksViewChanges={false}
+        stopPropagation
+      >
+        <IOSClusterMarker count={attractions.length} />
+      </Marker>
+    );
+  }, [
+    showIndividualMarkers,
+    handleMarkerPress,
+    handleClusterPress,
+    clusterCenter
+  ]);
+
+  const renderAndroidMarkers = useCallback(() => {
+    if (!mapReady) return null;
+
+    if (showIndividualMarkers) {
+      return attractions.map(attraction => {
+        const color = getCategoryColor(attraction.category);
+        const hasModel = !!attraction.model;
+
+        return (
+          <Marker
+            key={`android-${attraction.id}`}
+            identifier={attraction.id}
+            coordinate={attraction.coordinate}
+            onPress={() => handleMarkerPress(attraction.id)}
+            pinColor={hasModel ? '#4ADE80' : color}
+            tracksViewChanges={false}
+          />
+        );
+      });
+    }
+
+    return (
+      <Marker
+        key="android-cluster"
+        coordinate={clusterCenter}
+        onPress={handleClusterPress}
+        pinColor="#4ADE80"
+        title={`${attractions.length} miejsc`}
+        tracksViewChanges={false}
+      />
+    );
+  }, [
+    mapReady,
+    showIndividualMarkers,
+    handleMarkerPress,
+    handleClusterPress,
+    clusterCenter,
+    getCategoryColor
+  ]);
+
   return (
     <View style={styles.container}>
       <MapView
         ref={mapRef}
         style={styles.map}
-        provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+        provider={isAndroid ? PROVIDER_GOOGLE : undefined}
         initialRegion={BYDGOSZCZ_COORDS}
         onRegionChangeComplete={setRegion}
+        onMapReady={() => setMapReady(true)}
         showsUserLocation
         showsMyLocationButton={false}
         showsCompass={false}
         onPress={handleMapPress}
         rotateEnabled={false}
         pitchEnabled={false}
+        moveOnMarkerPress={false}
+        toolbarEnabled={false}
       >
-        {showIndividualMarkers ? (
-          attractions.map(attraction => (
-            <Marker
-              key={attraction.id}
-              identifier={attraction.id}
-              coordinate={attraction.coordinate}
-              onPress={() => handleMarkerPress(attraction.id)}
-              anchor={{ x: 0.5, y: 0.5 }}
-              tracksViewChanges={false}
-              stopPropagation
-            >
-              <StaticMarker
-                category={attraction.category}
-                hasModel={!!attraction.model}
-              />
-            </Marker>
-          ))
-        ) : (
-          <Marker
-            coordinate={clusterCenter}
-            onPress={handleClusterPress}
-            anchor={{ x: 0.5, y: 0.5 }}
-            tracksViewChanges={false}
-            stopPropagation
-          >
-            <View style={styles.clusterMarker}>
-              <Text style={styles.clusterText}>{attractions.length}</Text>
-              <Text style={styles.clusterLabel}>miejsc</Text>
-            </View>
-          </Marker>
-        )}
+        {isAndroid ? renderAndroidMarkers() : renderIOSMarkers()}
       </MapView>
 
-      {/* Top Bar */}
-      <View style={[styles.topBar, { top: insets.top - 35 }]}>
+      <View style={[styles.topBar, { top: insets.top - 25}]}>
         <View style={styles.statsPill}>
           <Ionicons name="location" size={14} color="#4ADE80" />
           <Text style={styles.statText}>{attractions.length} miejsc</Text>
@@ -298,12 +419,12 @@ export default function MapScreen({ navigation }: MapScreenProps) {
         <TouchableOpacity
           style={styles.locationBtn}
           onPress={handleCenterOnUser}
+          activeOpacity={0.7}
         >
           <Ionicons name="navigate" size={18} color="#4ADE80" />
         </TouchableOpacity>
       </View>
 
-      {/* Zoom hint */}
       {!showIndividualMarkers && !selectedId && (
         <View style={[styles.zoomHint, { bottom: insets.bottom + 100 }]}>
           <Ionicons
@@ -317,7 +438,6 @@ export default function MapScreen({ navigation }: MapScreenProps) {
         </View>
       )}
 
-      {/* Info Card */}
       {isCardVisible && selectedAttraction && (
         <Animated.View
           style={[styles.card, { bottom: insets.bottom + 100 }, cardStyle]}
@@ -356,7 +476,11 @@ export default function MapScreen({ navigation }: MapScreenProps) {
                 )}
               </View>
             </View>
-            <TouchableOpacity style={styles.closeBtn} onPress={handleCloseCard}>
+            <TouchableOpacity
+              style={styles.closeBtn}
+              onPress={handleCloseCard}
+              activeOpacity={0.7}
+            >
               <Ionicons name="close" size={18} color="rgba(255,255,255,0.6)" />
             </TouchableOpacity>
           </View>
@@ -397,6 +521,7 @@ export default function MapScreen({ navigation }: MapScreenProps) {
               <TouchableOpacity
                 style={styles.arBtn}
                 onPress={() => setShowARModal(true)}
+                activeOpacity={0.8}
               >
                 <Ionicons name="cube" size={18} color="#000" />
                 <Text style={styles.arBtnText}>Zobacz w AR</Text>
@@ -408,6 +533,7 @@ export default function MapScreen({ navigation }: MapScreenProps) {
                 !selectedAttraction.model && styles.btnFull
               ]}
               onPress={handleViewDetails}
+              activeOpacity={0.8}
             >
               <Text style={styles.detailsBtnText}>Szczegóły</Text>
               <Ionicons name="arrow-forward" size={18} color="#4ADE80" />
@@ -435,79 +561,14 @@ const styles = StyleSheet.create({
   map: {
     flex: 1
   },
-  markerContainer: {
-    width: 50,
-    height: 50,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  marker: {
-    backgroundColor: 'rgba(0,0,0,0.9)',
-    padding: 10,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.2)',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4,
-        shadowRadius: 8
-      },
-      android: { elevation: 6 }
-    })
-  },
-  markerAR: {
-    borderColor: '#4ADE80'
-  },
-  arDot: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#4ADE80',
-    borderWidth: 2,
-    borderColor: 'rgba(0,0,0,0.9)'
-  },
-  clusterMarker: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(0,0,0,0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#4ADE80',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#4ADE80',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.6,
-        shadowRadius: 15
-      },
-      android: { elevation: 10 }
-    })
-  },
-  clusterText: {
-    color: '#4ADE80',
-    fontSize: 22,
-    fontWeight: '700'
-  },
-  clusterLabel: {
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: 10,
-    fontWeight: '500',
-    marginTop: -2
-  },
   topBar: {
     position: 'absolute',
     left: 16,
     right: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center'
+    alignItems: 'center',
+    zIndex: 100
   },
   statsPill: {
     flexDirection: 'row',
@@ -518,7 +579,16 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     gap: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)'
+    borderColor: 'rgba(255,255,255,0.15)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4
+      },
+      android: { elevation: 4 }
+    })
   },
   statText: {
     color: '#FFF',
@@ -538,7 +608,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)'
+    borderColor: 'rgba(255,255,255,0.15)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4
+      },
+      android: { elevation: 4 }
+    })
   },
   zoomHint: {
     position: 'absolute',
@@ -551,7 +630,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     borderRadius: 25,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)'
+    borderColor: 'rgba(255,255,255,0.1)',
+    zIndex: 100,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4
+      },
+      android: { elevation: 4 }
+    })
   },
   zoomHintText: {
     color: 'rgba(255,255,255,0.8)',
@@ -567,6 +656,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
+    zIndex: 200,
     ...Platform.select({
       ios: {
         shadowColor: '#000',

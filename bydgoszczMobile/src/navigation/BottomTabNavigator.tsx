@@ -8,6 +8,7 @@ import type { BottomTabParamList } from './types';
 
 import MapScreen from '../screens/MapScreen';
 import AttractionsScreen from '../screens/AttractionsScreen';
+import PlannerScreen from '../screens/PlannerScreen';
 
 const Tab = createBottomTabNavigator<BottomTabParamList>();
 
@@ -24,6 +25,8 @@ export default function BottomTabNavigator() {
             iconName = focused ? 'map' : 'map-outline';
           } else if (route.name === 'AttractionsTab') {
             iconName = focused ? 'compass' : 'compass-outline';
+          } else if (route.name === 'PlannerTab') {
+            iconName = focused ? 'calendar' : 'calendar-outline';
           } else {
             iconName = 'camera-outline';
           }
@@ -47,8 +50,8 @@ export default function BottomTabNavigator() {
         headerShown: true,
         headerTitle: () => (
           <Image
-            source={require('../../assets/bydgoszczLogo.png')}
-            style={{ width: 110, height: 100, top: -10 }}
+            source={require('../../assets/logo.png')}
+            style={{ width: 150, height: 130, top: 0 }}
             resizeMode="contain"
           />
         ),
@@ -119,6 +122,14 @@ export default function BottomTabNavigator() {
         options={{
           tabBarLabel: 'Odkrywaj',
           title: 'Atrakcje'
+        }}
+      />
+      <Tab.Screen
+        name="PlannerTab"
+        component={PlannerScreen}
+        options={{
+          tabBarLabel: 'Planuj',
+          title: 'Planer'
         }}
       />
     </Tab.Navigator>

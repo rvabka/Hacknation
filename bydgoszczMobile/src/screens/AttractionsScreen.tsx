@@ -9,7 +9,9 @@ import {
   Image,
   Animated,
   Dimensions,
-  Easing
+  Easing,
+  Share,
+  Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,7 +24,7 @@ const GRADIENT_SIZE = Math.sqrt(width * width + height * height) * 1.5;
 
 const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
 
-import { attractions } from '../data/attractions';
+import { attractions, Attraction } from '../data/attractions';
 
 export default function AttractionsScreen({
   navigation
@@ -52,11 +54,39 @@ export default function AttractionsScreen({
     outputRange: ['0deg', '360deg']
   });
 
+  const handleShare = async (attraction: Attraction) => {
+    try {
+      const features = [];
+      if (attraction.hasAR) features.push('🎯 Widok AR');
+      if (attraction.hasAudio) features.push('🎧 Audio przewodnik');
+      if (attraction.hasAI) features.push('🤖 Asystent AI');
+
+      const message = `🏛️ ${attraction.title}
+
+📍 ${attraction.location}, Bydgoszcz
+${attraction.yearBuilt ? `📅 Rok: ${attraction.yearBuilt}\n` : ''}
+${attraction.description}
+
+${features.length > 0 ? `\n✨ Dostępne funkcje:\n${features.join('\n')}` : ''}
+
+🔗 Odkryj więcej atrakcji Bydgoszczy w aplikacji BydgoszczExplorer!`;
+
+      const result = await Share.share({
+        message,
+        title: `Odkryj: ${attraction.title}`
+      });
+
+      if (result.action === Share.sharedAction) {
+      }
+    } catch (error: any) {
+      Alert.alert('Błąd', 'Nie udało się udostępnić atrakcji');
+    }
+  };
+
   if (!fontsLoaded) {
     return null;
   }
 
-  // Oblicz bottom padding dla ScrollView
   const bottomPadding = 60 + insets.bottom + 20;
 
   return (
@@ -87,7 +117,6 @@ export default function AttractionsScreen({
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Stats header */}
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{attractions.length}</Text>
@@ -115,7 +144,6 @@ export default function AttractionsScreen({
             style={styles.card}
             activeOpacity={0.9}
             onPress={() => {
-              // @ts-ignore
               navigation.navigate('Details', {
                 id: attraction.id,
                 title: attraction.title,
@@ -131,16 +159,26 @@ export default function AttractionsScreen({
                 resizeMode="cover"
               />
 
-              {/* Gradient overlay */}
               <LinearGradient
                 colors={['transparent', 'rgba(0,0,0,0.7)']}
                 style={styles.imageGradient}
               />
 
-              {/* Category badge */}
               <View style={styles.categoryBadge}>
                 <Text style={styles.categoryText}>{attraction.category}</Text>
               </View>
+
+              <TouchableOpacity
+                style={styles.shareButton}
+                onPress={e => {
+                  e.stopPropagation();
+                  handleShare(attraction);
+                }}
+                activeOpacity={0.8}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="share-outline" size={18} color="#FFFFFF" />
+              </TouchableOpacity>
 
               {/* Features badges */}
               <View style={styles.featuresBadges}>
@@ -168,7 +206,6 @@ export default function AttractionsScreen({
                 )}
               </View>
 
-              {/* Year built */}
               {attraction.yearBuilt && (
                 <View style={styles.yearBadge}>
                   <Ionicons
@@ -210,7 +247,6 @@ export default function AttractionsScreen({
                 {attraction.description}
               </Text>
 
-              {/* Opening hours if available */}
               {attraction.openingHours && (
                 <View style={styles.hoursContainer}>
                   <Ionicons
@@ -237,7 +273,6 @@ export default function AttractionsScreen({
                   </View>
                 </View>
 
-                {/* Quick info */}
                 <View style={styles.quickInfo}>
                   <Text style={styles.funFactsCount}>
                     {attraction.funFacts?.length || 0} ciekawostek
@@ -248,7 +283,6 @@ export default function AttractionsScreen({
           </TouchableOpacity>
         ))}
 
-        {/* Footer info */}
         <View style={styles.footerInfo}>
           <Ionicons
             name="information-circle-outline"
@@ -380,6 +414,19 @@ const styles = StyleSheet.create({
     fontFamily: 'Kollektif-Bold',
     textTransform: 'uppercase',
     letterSpacing: 0.5
+  },
+  shareButton: {
+    position: 'absolute',
+    top: 56,
+    left: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)'
   },
   featuresBadges: {
     position: 'absolute',
