@@ -49,7 +49,7 @@ export const attractions: Attraction[] = [
   {
     id: '1',
     title: 'Rzeźba Łuczniczki',
-    image: require('../../assets/lucznik.jpeg'), // Zachowany oryginalny import
+    image: require('../../assets/lucznik.jpeg'),
     description:
       'Jeden z najbardziej rozpoznawalnych symboli Bydgoszczy. Smukła rzeźba dłuta Ferdinanda Lepckego, stojąca w parku Jana Kochanowskiego.',
     location: 'Park Kochanowskiego',
@@ -71,8 +71,8 @@ export const attractions: Attraction[] = [
   },
   {
     id: '2',
-    title: 'Przechodzący przez rzekę', // Tytuł zmieniony dla spójności i poprawności historycznej
-    image: require('../../assets/wioslarz.jpeg'), // Zachowany oryginalny import (wcześniej Wioślarz)
+    title: 'Przechodzący przez rzekę',
+    image: require('../../assets/wioslarz.jpeg'),
     description:
       'Słynna rzeźba-instalacja na linie nad Brdą, symbolizująca wejście Polski do Unii Europejskiej.',
     location: 'Most im. Jerzego Sulimy-Kamińskiego',
@@ -102,7 +102,7 @@ export const attractions: Attraction[] = [
     yearBuilt: '1915',
     funFacts: [
       'Kanał Bydgoski to najstarszy czynny kanał w Polsce (1774).',
-      'Śluza pokonuje różnicę poziomów wody wynoszącą **około 3 metry**.', // Korekta z 2,5m
+      'Śluza pokonuje różnicę poziomów wody wynoszącą **około 3 metry**.',
       'Rocznie przepływa przez nią około 3000 jednostek pływających.',
       'Jest częścią międzynarodowej drogi wodnej E70.'
     ],
@@ -144,7 +144,7 @@ export const attractions: Attraction[] = [
     yearBuilt: '1900',
     architect: 'Heinrich Seeling',
     funFacts: [
-      'Wysokość wieży to **48,5 metra** – z tarasu widać całą panoramę miasta.', // Korekta wysokości
+      'Wysokość wieży to **48,5 metra** – z tarasu widać całą panoramę miasta.',
       'Zbiornik mieścił 2000 m³ wody.',
       'Jest jedną z najlepiej zachowanych wież ciśnień w Polsce.',
       'Nocą wieża jest podświetlana.'
@@ -170,7 +170,7 @@ export const attractions: Attraction[] = [
     funFacts: [
       'Kasetonowy strop składa się z 117 malowanych pól z XVII wieku.',
       'Klasztor klarysek był jednym z najbogatszych w Rzeczypospolitej.',
-      'Wyróżnia się **unikalną w Polsce polichromią i ołtarzem głównym w stylu manieryzmu**.', // Poprawiony fakt
+      'Wyróżnia się **unikalną w Polsce polichromią i ołtarzem głównym w stylu manieryzmu**.',
       'Budowla przetrwała "potop szwedzki".'
     ],
     openingHours: 'Codziennie: 6:00-19:00',
@@ -210,10 +210,10 @@ export const attractions: Attraction[] = [
     category: 'Sakralny',
     yearBuilt: '1557',
     funFacts: [
-      'To **jeden z najstarszych** zachowanych kościołów w Bydgoszczy.', // Zmiana na bezpieczną frazę
+      'To **jeden z najstarszych** zachowanych kościołów w Bydgoszczy.',
       'Gotyckie sklepienie gwiaździste jest dziełem mistrza toruńskiego.',
       'W krypcie pochowani są polscy żołnierze.',
-      'Nazwa Garnizonowy pochodzi od przejęcia kościoła przez wojsko po II wojnie światowej.' // Poprawiony fakt
+      'Nazwa Garnizonowy pochodzi od przejęcia kościoła przez wojsko po II wojnie światowej.' 
     ],
     openingHours: 'Codziennie: 7:00-18:00',
     hasAR: false,
@@ -233,7 +233,7 @@ export const attractions: Attraction[] = [
     architect: 'Ferdinand Lepcke',
     funFacts: [
       'Oryginalna fontanna została zniszczona podczas II wojny światowej.',
-      'Rekonstrukcja, prowadzona z udziałem darczyńców, kosztowała **ponad 10 milionów złotych**.', // Poprawiona kwota
+      'Rekonstrukcja, prowadzona z udziałem darczyńców, kosztowała **ponad 10 milionów złotych**.',
       'Przedstawia scenę z Księgi Rodzaju.',
       'Jest jedną z największych fontann figuralnych w Polsce.'
     ],

@@ -180,7 +180,6 @@ ${features.length > 0 ? `\n✨ Dostępne funkcje:\n${features.join('\n')}` : ''}
                 <Ionicons name="share-outline" size={18} color="#FFFFFF" />
               </TouchableOpacity>
 
-              {/* Features badges */}
               <View style={styles.featuresBadges}>
                 {attraction.hasAR && (
                   <View style={[styles.featureBadge, styles.arBadge]}>

@@ -63,20 +63,15 @@ export default function ARViewModal({
   const cardSlide = useRef(new Animated.Value(100)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
 
-  // Sprawdź czy atrakcja ma mp3
   const hasAudio = !!attraction.mp3;
   const hasModel = !!attraction.model;
 
-  // Funkcja zamykająca AR z zatrzymaniem audio
   const handleCloseAR = async () => {
-    // Zamknij modals jeśli otwarte
     setShowAudioModal(false);
     setShowChatModal(false);
 
-    // Zatrzymaj i wyczyść audio
     await stopAndUnloadAudio();
 
-    // Zamknij AR modal
     onClose();
   };
 
