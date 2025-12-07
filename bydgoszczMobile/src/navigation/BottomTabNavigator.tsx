@@ -48,7 +48,7 @@ export default function BottomTabNavigator() {
         headerTitle: () => (
           <Image
             source={require('../../assets/bydgoszczLogo.png')}
-            style={{ width: 150, height: 100, top: -10 }}
+            style={{ width: 110, height: 100, top: -10 }}
             resizeMode="contain"
           />
         ),
@@ -58,7 +58,7 @@ export default function BottomTabNavigator() {
           elevation: 0,
           shadowOpacity: 0,
           borderBottomWidth: 0,
-          height: 110,
+          height: 110
         },
         headerTintColor: '#1B4D3E',
         headerTitleStyle: {
@@ -70,9 +70,9 @@ export default function BottomTabNavigator() {
           bottom: 0,
           left: 0,
           right: 0,
-          height: 50 + insets.bottom,
-          paddingBottom: insets.bottom + 8,
+          height: 70 + insets.bottom,
           paddingTop: 12,
+          paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
           backgroundColor: 'rgba(0, 0, 0, 0.95)',
           borderTopWidth: 1,
           borderTopColor: 'rgba(255, 255, 255, 0.1)',
@@ -88,11 +88,20 @@ export default function BottomTabNavigator() {
             }
           })
         },
+        tabBarBackground: () => (
+          <View
+            style={{
+              ...StyleSheet.absoluteFillObject,
+              backgroundColor: 'rgba(0, 0, 0, 0.95)'
+            }}
+          />
+        ),
         tabBarActiveTintColor: '#4ADE80',
         tabBarInactiveTintColor: 'rgba(255, 255, 255, 0.5)',
         tabBarItemStyle: {
           justifyContent: 'center',
-          alignItems: 'center'
+          alignItems: 'center',
+          paddingBottom: insets.bottom > 0 ? 0 : 8
         }
       })}
     >

@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Modal,
-  Animated
+  GestureResponderEvent
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
@@ -42,6 +42,16 @@ export default function AudioPlayerModal({
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekPosition, setSeekPosition] = useState(0);
+
+  const sliderWidth = useRef(0);
+  const durationRef = useRef(0);
+
+  // Aktualizuj ref gdy duration się zmieni
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
 
   useEffect(() => {
     if (visible && audioFile) {
@@ -57,8 +67,6 @@ export default function AudioPlayerModal({
   const loadAudio = async () => {
     try {
       setIsLoading(true);
-      
-      // Zatrzymaj poprzednie audio jeśli jest
       await stopAndUnloadAudio();
 
       const { sound: newSound } = await Audio.Sound.createAsync(
@@ -66,7 +74,7 @@ export default function AudioPlayerModal({
         { shouldPlay: false },
         onPlaybackStatusUpdate
       );
-      
+
       currentSound = newSound;
       setIsLoading(false);
     } catch (error) {
@@ -77,7 +85,9 @@ export default function AudioPlayerModal({
 
   const onPlaybackStatusUpdate = (status: any) => {
     if (status.isLoaded) {
-      setPosition(status.positionMillis);
+      if (!isSeeking) {
+        setPosition(status.positionMillis);
+      }
       setDuration(status.durationMillis || 0);
       setIsPlaying(status.isPlaying);
 
@@ -114,6 +124,44 @@ export default function AudioPlayerModal({
     await currentSound.setPositionAsync(newPosition);
   };
 
+  const calculateSeekPosition = useCallback((locationX: number) => {
+    if (sliderWidth.current <= 0 || durationRef.current <= 0) return 0;
+    const progress = Math.max(0, Math.min(1, locationX / sliderWidth.current));
+    return progress * durationRef.current;
+  }, []);
+
+  const handleSliderTouchStart = useCallback(
+    (e: GestureResponderEvent) => {
+      setIsSeeking(true);
+      const newSeekPos = calculateSeekPosition(e.nativeEvent.locationX);
+      setSeekPosition(newSeekPos);
+    },
+    [calculateSeekPosition]
+  );
+
+  const handleSliderTouchMove = useCallback(
+    (e: GestureResponderEvent) => {
+      const newSeekPos = calculateSeekPosition(e.nativeEvent.locationX);
+      setSeekPosition(newSeekPos);
+    },
+    [calculateSeekPosition]
+  );
+
+  const handleSliderTouchEnd = useCallback(async () => {
+    if (!currentSound) {
+      setIsSeeking(false);
+      return;
+    }
+
+    try {
+      await currentSound.setPositionAsync(seekPosition);
+      setPosition(seekPosition);
+    } catch (error) {
+      console.error('Error seeking:', error);
+    }
+    setIsSeeking(false);
+  }, [seekPosition]);
+
   const formatTime = (millis: number) => {
     const totalSeconds = Math.floor(millis / 1000);
     const minutes = Math.floor(totalSeconds / 60);
@@ -121,7 +169,8 @@ export default function AudioPlayerModal({
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const progressWidth = duration > 0 ? (position / duration) * 100 : 0;
+  const displayPosition = isSeeking ? seekPosition : position;
+  const progressWidth = duration > 0 ? (displayPosition / duration) * 100 : 0;
 
   const handleClose = async () => {
     await stopAndUnloadAudio();
@@ -129,6 +178,10 @@ export default function AudioPlayerModal({
     setDuration(0);
     setIsPlaying(false);
     onClose();
+  };
+
+  const onSliderLayout = (event: any) => {
+    sliderWidth.current = event.nativeEvent.layout.width;
   };
 
   return (
@@ -150,7 +203,10 @@ export default function AudioPlayerModal({
                   {title}
                 </Text>
               </View>
-              <TouchableOpacity style={styles.modalCloseButton} onPress={handleClose}>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={handleClose}
+              >
                 <Ionicons name="close" size={22} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
@@ -162,13 +218,33 @@ export default function AudioPlayerModal({
             ) : (
               <>
                 <View style={styles.progressContainer}>
-                  <View style={styles.progressBar}>
+                  <View
+                    style={styles.sliderContainer}
+                    onLayout={onSliderLayout}
+                    onStartShouldSetResponder={() => true}
+                    onMoveShouldSetResponder={() => true}
+                    onResponderGrant={handleSliderTouchStart}
+                    onResponderMove={handleSliderTouchMove}
+                    onResponderRelease={handleSliderTouchEnd}
+                    onResponderTerminate={handleSliderTouchEnd}
+                  >
+                    <View style={styles.progressBar}>
+                      <View
+                        style={[
+                          styles.progressFill,
+                          { width: `${progressWidth}%` }
+                        ]}
+                      />
+                    </View>
                     <View
-                      style={[styles.progressFill, { width: `${progressWidth}%` }]}
+                      style={[styles.thumb, { left: `${progressWidth}%` }]}
+                      pointerEvents="none"
                     />
                   </View>
                   <View style={styles.timeRow}>
-                    <Text style={styles.timeText}>{formatTime(position)}</Text>
+                    <Text style={styles.timeText}>
+                      {formatTime(displayPosition)}
+                    </Text>
                     <Text style={styles.timeText}>{formatTime(duration)}</Text>
                   </View>
                 </View>
@@ -277,6 +353,11 @@ const styles = StyleSheet.create({
   progressContainer: {
     marginBottom: 32
   },
+  sliderContainer: {
+    height: 40,
+    justifyContent: 'center',
+    position: 'relative'
+  },
   progressBar: {
     height: 6,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -287,6 +368,22 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#4ADE80',
     borderRadius: 3
+  },
+  thumb: {
+    position: 'absolute',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#4ADE80',
+    marginLeft: -10,
+    top: 10,
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 4
   },
   timeRow: {
     flexDirection: 'row',

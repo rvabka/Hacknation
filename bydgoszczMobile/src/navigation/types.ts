@@ -1,55 +1,36 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import type { BottomTabScreenProps as RNBottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { CompositeScreenProps } from '@react-navigation/native';
 
-// Bottom Tab Navigator - dodaj ARView tutaj!
+// Bottom Tab Navigator
 export type BottomTabParamList = {
   MapTab: undefined;
   AttractionsTab: undefined;
-  ARView: {
-    attraction: {
-      id: string;
-      title: string;
-      description: string;
-      rating: number;
-      location: string;
-      coordinate: {
-        latitude: number;
-        longitude: number;
-      };
-    };
-  };
 };
 
-// Stack Navigator - bez ARView
+// Stack Navigator
 export type RootStackParamList = {
   MainTabs: undefined;
   Details: {
     id: string;
     title: string;
     description: string;
-    rating: number;
     location: string;
   };
 };
 
 // Screen Props
-export type MapTabScreenProps = BottomTabScreenProps<
-  BottomTabParamList,
-  'MapTab'
->;
-
-export type AttractionsTabScreenProps = BottomTabScreenProps<
-  BottomTabParamList,
-  'AttractionsTab'
->;
-
 export type DetailsScreenProps = NativeStackScreenProps<
   RootStackParamList,
   'Details'
 >;
 
-export type ARViewScreenProps = BottomTabScreenProps<
-  BottomTabParamList,
-  'ARView'
+export type MapScreenProps = CompositeScreenProps<
+  RNBottomTabScreenProps<BottomTabParamList, 'MapTab'>,
+  NativeStackScreenProps<RootStackParamList>
+>;
+
+export type AttractionsScreenProps = CompositeScreenProps<
+  RNBottomTabScreenProps<BottomTabParamList, 'AttractionsTab'>,
+  NativeStackScreenProps<RootStackParamList>
 >;

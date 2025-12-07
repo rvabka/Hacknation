@@ -37,16 +37,30 @@ interface GeminiChatModalProps {
   onClose: () => void;
 }
 
-// Przykładowe pytania dla różnych miejsc
-const getSuggestedQuestions = (title: string): string[] => {
-  const questions = [
-    `Kiedy powstał ${title}?`,
-    `Opowiedz ciekawostki o tym miejscu`,
-    `Kto zaprojektował ten obiekt?`,
-    `Co warto zobaczyć w pobliżu?`
-  ];
-  return questions;
-};
+const getSuggestedQuestions = (title: string): string[] => [
+  `Kiedy powstał ${title}?`,
+  `Opowiedz ciekawostki o tym miejscu`,
+  `Kto zaprojektował ten obiekt?`,
+  `Co warto zobaczyć w pobliżu?`
+];
+
+const OFF_TOPIC_PATTERNS = [
+  /napisz (mi )?(kod|program|skrypt)/,
+  /jak (napisać|zrobić|stworzyć) (aplikację|stronę|program)/,
+  /przepis na/,
+  /jak ugotować/,
+  /ile to jest \d+/,
+  /rozwiąż (równanie|zadanie matematyczne)/,
+  /przetłumacz (na|z) (angielski|niemiecki|francuski)/,
+  /napisz (esej|wypracowanie|list)/,
+  /jaka jest (pogoda|temperatura) (w|na)/,
+  /kto wygrał (mecz|wybory)/,
+  /jak schudnąć/,
+  /jak zarobić pieniądze/,
+  /opowiedz (żart|dowcip)/,
+  /zaśpiewaj/,
+  /napisz wiersz o miłości/
+];
 
 export default function GeminiChatModal({
   visible,
@@ -61,30 +75,24 @@ export default function GeminiChatModal({
   const [isLoading, setIsLoading] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
-
   const slideAnim = useRef(new Animated.Value(500)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
-
   const suggestedQuestions = getSuggestedQuestions(attractionTitle);
 
-  // Keyboard listeners
   useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => {
-        setIsKeyboardVisible(true);
-      }
+    const showEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showListener = Keyboard.addListener(showEvent, () =>
+      setIsKeyboardVisible(true)
     );
-    const keyboardDidHideListener = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => {
-        setIsKeyboardVisible(false);
-      }
+    const hideListener = Keyboard.addListener(hideEvent, () =>
+      setIsKeyboardVisible(false)
     );
-
     return () => {
-      keyboardDidShowListener.remove();
-      keyboardDidHideListener.remove();
+      showListener.remove();
+      hideListener.remove();
     };
   }, []);
 
@@ -92,7 +100,6 @@ export default function GeminiChatModal({
     if (visible) {
       setMessages([]);
       setInputText('');
-
       Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: 0,
@@ -123,90 +130,54 @@ export default function GeminiChatModal({
         duration: 200,
         useNativeDriver: true
       })
-    ]).start(() => {
-      onClose();
-    });
+    ]).start(onClose);
   };
 
-  // Znacznie bardziej liberalna walidacja - blokuje tylko oczywiste off-topic
-  const isOffTopic = (question: string): boolean => {
-    const lowerQuestion = question.toLowerCase().trim();
-
-    // Lista tematów, które NA PEWNO nie są związane z turystyką
-    const offTopicPatterns = [
-      /napisz (mi )?(kod|program|skrypt)/,
-      /jak (napisać|zrobić|stworzyć) (aplikację|stronę|program)/,
-      /przepis na/,
-      /jak ugotować/,
-      /ile to jest \d+/,
-      /rozwiąż (równanie|zadanie matematyczne)/,
-      /przetłumacz (na|z) (angielski|niemiecki|francuski)/,
-      /napisz (esej|wypracowanie|list)/,
-      /jaka jest (pogoda|temperatura) (w|na)/,
-      /kto wygrał (mecz|wybory)/,
-      /jak schudnąć/,
-      /jak zarobić pieniądze/,
-      /opowiedz (żart|dowcip)/,
-      /zaśpiewaj/,
-      /napisz wiersz o miłości/
-    ];
-
-    for (const pattern of offTopicPatterns) {
-      if (pattern.test(lowerQuestion)) {
-        return true;
-      }
-    }
-
-    return false;
-  };
+  const isOffTopic = (q: string) =>
+    OFF_TOPIC_PATTERNS.some(p => p.test(q.toLowerCase().trim()));
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || isLoading) return;
-
     const userMessage: Message = {
       id: Date.now().toString(),
       text: text.trim(),
       isUser: true
     };
-
     setMessages(prev => [...prev, userMessage]);
     setInputText('');
     setIsLoading(true);
 
-    // Sprawdź czy pytanie jest ewidentnie off-topic
     if (isOffTopic(text)) {
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: `🎯 Jestem przewodnikiem po "${attractionTitle}". Chętnie opowiem o tym miejscu, jego historii, architekturze lub okolicy. Zadaj pytanie związane z tą atrakcją!`,
-        isUser: false
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          text: `🎯 Jestem przewodnikiem po "${attractionTitle}". Chętnie opowiem o tym miejscu, jego historii, architekturze lub okolicy. Zadaj pytanie związane z tą atrakcją!`,
+          isUser: false
+        }
+      ]);
       setIsLoading(false);
       return;
     }
 
-    // Dodaj placeholder dla odpowiedzi
-    const loadingMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      text: '',
-      isUser: false,
-      isLoading: true
-    };
-    setMessages(prev => [...prev, loadingMessage]);
+    setMessages(prev => [
+      ...prev,
+      {
+        id: (Date.now() + 1).toString(),
+        text: '',
+        isUser: false,
+        isLoading: true
+      }
+    ]);
 
     try {
-      // Sprawdź czy API key jest dostępny
-      if (!GEMINI_API_KEY) {
-        throw new Error('Brak klucza API');
-      }
+      if (!GEMINI_API_KEY) throw new Error('Brak klucza API');
 
       const systemPrompt = `Jesteś ekspertem i przewodnikiem turystycznym po Bydgoszczy. Aktualnie opowiadasz o miejscu: "${attractionTitle}".
-
 Kontekst miejsca:
 - Nazwa: ${attractionTitle}
 - Lokalizacja: ${attractionLocation}
 - Opis: ${attractionDescription}
-
 WAŻNE ZASADY:
 1. Odpowiadaj TYLKO po polsku
 2. Odpowiadaj zwięźle (2-4 zdania), ale merytorycznie
@@ -215,73 +186,55 @@ WAŻNE ZASADY:
 5. Możesz dodać ciekawostki związane z miejscem
 6. Jeśli nie znasz dokładnej odpowiedzi, powiedz co wiesz i zasugeruj gdzie można znaleźć więcej informacji`;
 
-      const requestBody = {
-        contents: [
-          {
-            parts: [
-              { text: systemPrompt },
-              { text: `Pytanie turysty: ${text}` }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 400,
-          topP: 0.8,
-          topK: 40
-        },
-        safetySettings: [
-          {
-            category: 'HARM_CATEGORY_HARASSMENT',
-            threshold: 'BLOCK_MEDIUM_AND_ABOVE'
-          },
-          {
-            category: 'HARM_CATEGORY_HATE_SPEECH',
-            threshold: 'BLOCK_MEDIUM_AND_ABOVE'
-          },
-          {
-            category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-            threshold: 'BLOCK_MEDIUM_AND_ABOVE'
-          },
-          {
-            category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-            threshold: 'BLOCK_MEDIUM_AND_ABOVE'
-          }
-        ]
-      };
-
-      console.log('Sending request to Gemini API...');
-      console.log('API Key exists:', !!GEMINI_API_KEY);
-      console.log('API Key first 10 chars:', GEMINI_API_KEY?.substring(0, 10));
-
       const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: systemPrompt },
+                { text: `Pytanie turysty: ${text}` }
+              ]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 400,
+            topP: 0.8,
+            topK: 40
+          },
+          safetySettings: [
+            {
+              category: 'HARM_CATEGORY_HARASSMENT',
+              threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+            },
+            {
+              category: 'HARM_CATEGORY_HATE_SPEECH',
+              threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+            },
+            {
+              category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+              threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+            },
+            {
+              category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+              threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+            }
+          ]
+        })
       });
 
-      console.log('Response status:', response.status);
-
       const data = await response.json();
-      console.log('Response data:', JSON.stringify(data, null, 2));
-
-      if (!response.ok) {
+      if (!response.ok)
         throw new Error(data.error?.message || `HTTP ${response.status}`);
-      }
 
-      let aiResponse = '';
-
-      if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
-        aiResponse = data.candidates[0].content.parts[0].text;
-      } else if (data.promptFeedback?.blockReason) {
-        aiResponse =
-          'Przepraszam, nie mogę odpowiedzieć na to pytanie. Spróbuj zapytać o coś innego związanego z tym miejscem.';
-      } else {
-        console.error('Unexpected response structure:', data);
-        throw new Error('Nieoczekiwana struktura odpowiedzi');
-      }
+      let aiResponse =
+        data.candidates?.[0]?.content?.parts?.[0]?.text ||
+        (data.promptFeedback?.blockReason
+          ? 'Przepraszam, nie mogę odpowiedzieć na to pytanie. Spróbuj zapytać o coś innego związanego z tym miejscem.'
+          : '');
+      if (!aiResponse) throw new Error('Nieoczekiwana struktura odpowiedzi');
 
       setMessages(prev =>
         prev.map(msg =>
@@ -289,22 +242,17 @@ WAŻNE ZASADY:
         )
       );
     } catch (error: any) {
-      console.error('Gemini API error:', error);
-
       let errorText = 'Wystąpił błąd. Spróbuj ponownie za chwilę.';
-
-      if (error.message?.includes('API key')) {
+      if (error.message?.includes('API key'))
         errorText = 'Problem z konfiguracją. Sprawdź klucz API.';
-      } else if (error.message?.includes('quota')) {
+      else if (error.message?.includes('quota'))
         errorText = 'Przekroczono limit zapytań. Spróbuj za chwilę.';
-      } else if (
+      else if (
         error.message?.includes('network') ||
         error.message?.includes('fetch')
-      ) {
+      )
         errorText =
           'Brak połączenia z internetem. Sprawdź połączenie i spróbuj ponownie.';
-      }
-
       setMessages(prev =>
         prev.map(msg =>
           msg.isLoading ? { ...msg, text: errorText, isLoading: false } : msg
@@ -313,14 +261,10 @@ WAŻNE ZASADY:
     }
 
     setIsLoading(false);
-
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 100);
-  };
-
-  const handleSuggestedQuestion = (question: string) => {
-    sendMessage(question);
+    setTimeout(
+      () => scrollViewRef.current?.scrollToEnd({ animated: true }),
+      100
+    );
   };
 
   if (!visible) return null;
@@ -342,7 +286,6 @@ WAŻNE ZASADY:
             activeOpacity={1}
             onPress={handleClose}
           />
-
           <Animated.View
             style={[
               styles.modalContainer,
@@ -351,8 +294,6 @@ WAŻNE ZASADY:
           >
             <BlurView intensity={95} tint="dark" style={styles.blurContainer}>
               <View style={styles.handle} />
-
-              {/* Header */}
               <View style={styles.header}>
                 <View style={styles.headerInfo}>
                   <View style={styles.aiBadge}>
@@ -377,7 +318,6 @@ WAŻNE ZASADY:
                 </TouchableOpacity>
               </View>
 
-              {/* Chat area */}
               <View
                 style={[
                   styles.chatContainer,
@@ -396,7 +336,7 @@ WAŻNE ZASADY:
                 >
                   {messages.length === 0 ? (
                     <View style={styles.emptyState}>
-                      {!isKeyboardVisible && (
+                      {!isKeyboardVisible ? (
                         <>
                           <View style={styles.emptyIconContainer}>
                             <Ionicons
@@ -410,16 +350,12 @@ WAŻNE ZASADY:
                             Jestem Twoim przewodnikiem po {attractionTitle}.
                             Zapytaj mnie o cokolwiek!
                           </Text>
-
-                          {/* Suggested questions - ukryte gdy klawiatura widoczna */}
                           <View style={styles.suggestionsContainer}>
-                            {suggestedQuestions.map((question, index) => (
+                            {suggestedQuestions.map((q, i) => (
                               <TouchableOpacity
-                                key={index}
+                                key={i}
                                 style={styles.suggestionButton}
-                                onPress={() =>
-                                  handleSuggestedQuestion(question)
-                                }
+                                onPress={() => sendMessage(q)}
                               >
                                 <Ionicons
                                   name="chatbubble-outline"
@@ -430,14 +366,13 @@ WAŻNE ZASADY:
                                   style={styles.suggestionText}
                                   numberOfLines={2}
                                 >
-                                  {question}
+                                  {q}
                                 </Text>
                               </TouchableOpacity>
                             ))}
                           </View>
                         </>
-                      )}
-                      {isKeyboardVisible && (
+                      ) : (
                         <View style={styles.keyboardHint}>
                           <Ionicons
                             name="chatbubble-ellipses-outline"
@@ -452,15 +387,15 @@ WAŻNE ZASADY:
                     </View>
                   ) : (
                     <>
-                      {messages.map(message => (
+                      {messages.map(msg => (
                         <View
-                          key={message.id}
+                          key={msg.id}
                           style={[
                             styles.messageBubble,
-                            message.isUser ? styles.userBubble : styles.aiBubble
+                            msg.isUser ? styles.userBubble : styles.aiBubble
                           ]}
                         >
-                          {!message.isUser && (
+                          {!msg.isUser && (
                             <View style={styles.aiAvatar}>
                               <Ionicons
                                 name="sparkles"
@@ -472,12 +407,10 @@ WAŻNE ZASADY:
                           <View
                             style={[
                               styles.messageContent,
-                              message.isUser
-                                ? styles.userContent
-                                : styles.aiContent
+                              msg.isUser ? styles.userContent : styles.aiContent
                             ]}
                           >
-                            {message.isLoading ? (
+                            {msg.isLoading ? (
                               <View style={styles.loadingDots}>
                                 <ActivityIndicator
                                   size="small"
@@ -489,19 +422,15 @@ WAŻNE ZASADY:
                               <Text
                                 style={[
                                   styles.messageText,
-                                  message.isUser
-                                    ? styles.userText
-                                    : styles.aiText
+                                  msg.isUser ? styles.userText : styles.aiText
                                 ]}
                               >
-                                {message.text}
+                                {msg.text}
                               </Text>
                             )}
                           </View>
                         </View>
                       ))}
-
-                      {/* Quick suggestions - ukryte gdy klawiatura widoczna */}
                       {messages.length > 0 &&
                         messages.length < 6 &&
                         !isLoading &&
@@ -514,24 +443,20 @@ WAŻNE ZASADY:
                               horizontal
                               showsHorizontalScrollIndicator={false}
                             >
-                              {suggestedQuestions
-                                .slice(0, 3)
-                                .map((question, index) => (
-                                  <TouchableOpacity
-                                    key={index}
-                                    style={styles.quickSuggestionChip}
-                                    onPress={() =>
-                                      handleSuggestedQuestion(question)
-                                    }
+                              {suggestedQuestions.slice(0, 3).map((q, i) => (
+                                <TouchableOpacity
+                                  key={i}
+                                  style={styles.quickSuggestionChip}
+                                  onPress={() => sendMessage(q)}
+                                >
+                                  <Text
+                                    style={styles.quickSuggestionText}
+                                    numberOfLines={1}
                                   >
-                                    <Text
-                                      style={styles.quickSuggestionText}
-                                      numberOfLines={1}
-                                    >
-                                      {question}
-                                    </Text>
-                                  </TouchableOpacity>
-                                ))}
+                                    {q}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
                             </ScrollView>
                           </View>
                         )}
@@ -539,7 +464,6 @@ WAŻNE ZASADY:
                   )}
                 </ScrollView>
 
-                {/* Input area */}
                 <View
                   style={[
                     styles.inputContainer,
@@ -586,26 +510,20 @@ WAŻNE ZASADY:
 }
 
 const styles = StyleSheet.create({
-  keyboardAvoid: {
-    flex: 1
-  },
+  keyboardAvoid: { flex: 1 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'flex-end'
   },
-  overlayTouchable: {
-    flex: 1
-  },
+  overlayTouchable: { flex: 1 },
   modalContainer: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: 'hidden',
     maxHeight: '85%'
   },
-  blurContainer: {
-    paddingTop: 12
-  },
+  blurContainer: { paddingTop: 12 },
   handle: {
     width: 40,
     height: 4,
@@ -621,12 +539,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 16
   },
-  headerInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    gap: 12
-  },
+  headerInfo: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 },
   aiBadge: {
     width: 44,
     height: 44,
@@ -635,20 +548,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center'
   },
-  headerTextContainer: {
-    flex: 1
-  },
+  headerTextContainer: { flex: 1 },
   headerLabel: {
     fontSize: 12,
     color: 'rgba(255, 255, 255, 0.6)',
     fontWeight: '500',
     marginBottom: 2
   },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF'
-  },
+  headerTitle: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
   closeButton: {
     width: 36,
     height: 36,
@@ -658,23 +565,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: 12
   },
-  chatContainer: {
-    height: 420
-  },
-  chatContainerKeyboard: {
-    height: 200
-  },
-  messagesContainer: {
-    flex: 1,
-    paddingHorizontal: 20
-  },
-  messagesContent: {
-    paddingBottom: 16
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 20
-  },
+  chatContainer: { height: 420 },
+  chatContainerKeyboard: { height: 200 },
+  messagesContainer: { flex: 1, paddingHorizontal: 20 },
+  messagesContent: { paddingBottom: 16 },
+  emptyState: { alignItems: 'center', paddingVertical: 20 },
   emptyIconContainer: {
     width: 64,
     height: 64,
@@ -699,10 +594,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     paddingHorizontal: 20
   },
-  suggestionsContainer: {
-    width: '100%',
-    gap: 10
-  },
+  suggestionsContainer: { width: '100%', gap: 10 },
   suggestionButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -720,11 +612,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '500'
   },
-  keyboardHint: {
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 20
-  },
+  keyboardHint: { alignItems: 'center', gap: 8, paddingVertical: 20 },
   keyboardHintText: {
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.5)',
@@ -735,12 +623,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     alignItems: 'flex-end'
   },
-  userBubble: {
-    justifyContent: 'flex-end'
-  },
-  aiBubble: {
-    justifyContent: 'flex-start'
-  },
+  userBubble: { justifyContent: 'flex-end' },
+  aiBubble: { justifyContent: 'flex-start' },
   aiAvatar: {
     width: 28,
     height: 28,
@@ -765,29 +649,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderBottomLeftRadius: 4
   },
-  messageText: {
-    fontSize: 14,
-    lineHeight: 20
-  },
-  userText: {
-    color: '#FFFFFF'
-  },
-  aiText: {
-    color: '#FFFFFF'
-  },
-  loadingDots: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
-  },
-  loadingText: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.6)'
-  },
-  quickSuggestions: {
-    marginTop: 12,
-    marginBottom: 8
-  },
+  messageText: { fontSize: 14, lineHeight: 20 },
+  userText: { color: '#FFFFFF' },
+  aiText: { color: '#FFFFFF' },
+  loadingDots: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  loadingText: { fontSize: 14, color: 'rgba(255, 255, 255, 0.6)' },
+  quickSuggestions: { marginTop: 12, marginBottom: 8 },
   quickSuggestionsLabel: {
     fontSize: 12,
     color: 'rgba(255, 255, 255, 0.5)',
@@ -802,11 +669,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(74, 222, 128, 0.25)'
   },
-  quickSuggestionText: {
-    fontSize: 13,
-    color: '#4ADE80',
-    fontWeight: '500'
-  },
+  quickSuggestionText: { fontSize: 13, color: '#4ADE80', fontWeight: '500' },
   inputContainer: {
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -828,7 +691,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#FFFFFF',
     maxHeight: 100,
-    paddingVertical: 8
+    paddingVertical: 12
   },
   sendButton: {
     width: 40,
@@ -838,7 +701,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center'
   },
-  sendButtonDisabled: {
-    backgroundColor: 'rgba(74, 222, 128, 0.3)'
-  }
+  sendButtonDisabled: { backgroundColor: 'rgba(74, 222, 128, 0.3)' }
 });

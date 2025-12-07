@@ -1,20 +1,21 @@
 import React, { useEffect, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  ScrollView, 
-  StyleSheet, 
-  Platform, 
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  StyleSheet,
+  Platform,
   Image,
   Animated,
   Dimensions,
   Easing
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons'; 
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFonts } from 'expo-font'; // 1. Importujemy hook do czcionek
-import type { AttractionsTabScreenProps } from '../navigation/types';
+import { useFonts } from 'expo-font';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AttractionsScreenProps } from '../navigation/types';
 
 const { width, height } = Dimensions.get('window');
 const GRADIENT_SIZE = Math.sqrt(width * width + height * height) * 1.5;
@@ -25,12 +26,12 @@ import { attractions } from '../data/attractions';
 
 export default function AttractionsScreen({
   navigation
-}: AttractionsTabScreenProps) {
-  // 2. Ładowanie czcionek
-  // Upewnij się, że pliki .ttf są w folderze assets/fonts/
+}: AttractionsScreenProps) {
+  const insets = useSafeAreaInsets();
+
   const [fontsLoaded] = useFonts({
-    'Kollektif': require('../../assets/fonts/Kollektif.ttf'),
-    'Kollektif-Bold': require('../../assets/fonts/Kollektif-Bold.ttf'),
+    Kollektif: require('../../assets/fonts/Kollektif.ttf'),
+    'Kollektif-Bold': require('../../assets/fonts/Kollektif-Bold.ttf')
   });
 
   const spinValue = useRef(new Animated.Value(0)).current;
@@ -39,9 +40,9 @@ export default function AttractionsScreen({
     Animated.loop(
       Animated.timing(spinValue, {
         toValue: 1,
-        duration: 15000, 
+        duration: 15000,
         easing: Easing.linear,
-        useNativeDriver: true, 
+        useNativeDriver: true
       })
     ).start();
   }, [spinValue]);
@@ -51,56 +52,74 @@ export default function AttractionsScreen({
     outputRange: ['0deg', '360deg']
   });
 
-  // 3. Czekamy na załadowanie czcionek przed renderowaniem
   if (!fontsLoaded) {
-    return null; // Lub <ActivityIndicator />
+    return null;
   }
+
+  // Oblicz bottom padding dla ScrollView
+  const bottomPadding = 60 + insets.bottom + 20;
 
   return (
     <View style={styles.mainWrapper}>
-      
       <View style={styles.shimmerContainer}>
         <AnimatedGradient
           colors={[
-            '#efe8bd', 
-            '#1B4D3E', 
-            '#1B4D3E', 
-            '#1B4D3E', 
-            '#1B4D3E', 
-            '#1B4D3E', 
+            '#efe8bd',
+            '#1B4D3E',
+            '#1B4D3E',
+            '#1B4D3E',
+            '#1B4D3E',
+            '#1B4D3E',
             '#1B4D3E'
           ]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
-          style={[
-            styles.rotatingGradient,
-            { transform: [{ rotate: spin }] }
-          ]}
+          style={[styles.rotatingGradient, { transform: [{ rotate: spin }] }]}
           pointerEvents="none"
         />
       </View>
 
-      <ScrollView 
-        style={styles.scrollViewContainer} 
-        contentContainerStyle={styles.scrollContent}
+      <ScrollView
+        style={styles.scrollViewContainer}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: bottomPadding }
+        ]}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.screenHeader}>
-          
-          
+        {/* Stats header */}
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{attractions.length}</Text>
+            <Text style={styles.statLabel}>Atrakcji</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>
+              {attractions.filter(a => a.hasAR).length}
+            </Text>
+            <Text style={styles.statLabel}>Z AR</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>
+              {attractions.filter(a => a.hasAudio).length}
+            </Text>
+            <Text style={styles.statLabel}>Audio</Text>
+          </View>
         </View>
 
-        {attractions.map(attraction => (
+        {attractions.map((attraction, index) => (
           <TouchableOpacity
             key={attraction.id}
             style={styles.card}
             activeOpacity={0.9}
             onPress={() => {
-              // @ts-ignore - Navigate to Details screen (ensure it's defined in your navigator)
+              // @ts-ignore
               navigation.navigate('Details', {
                 id: attraction.id,
                 title: attraction.title,
                 description: attraction.description,
-                rating: attraction.rating,
                 location: attraction.location
               });
             }}
@@ -111,16 +130,56 @@ export default function AttractionsScreen({
                 style={styles.image}
                 resizeMode="cover"
               />
-              
-              <View style={styles.favoriteButton}>
-                <Ionicons name="heart-outline" size={22} color="#FFFFFF" />
+
+              {/* Gradient overlay */}
+              <LinearGradient
+                colors={['transparent', 'rgba(0,0,0,0.7)']}
+                style={styles.imageGradient}
+              />
+
+              {/* Category badge */}
+              <View style={styles.categoryBadge}>
+                <Text style={styles.categoryText}>{attraction.category}</Text>
               </View>
 
-              <View style={styles.ratingBadge}>
-                <Ionicons name="star" size={14} color="#4ADE80" style={{ marginRight: 4 }} />
-                <Text style={styles.ratingText}>{attraction.rating}</Text>
-                
+              {/* Features badges */}
+              <View style={styles.featuresBadges}>
+                {attraction.hasAR && (
+                  <View style={[styles.featureBadge, styles.arBadge]}>
+                    <Ionicons name="cube-outline" size={14} color="#FFFFFF" />
+                    <Text style={styles.featureBadgeText}>AR</Text>
+                  </View>
+                )}
+                {attraction.hasAudio && (
+                  <View style={[styles.featureBadge, styles.audioBadge]}>
+                    <Ionicons
+                      name="headset-outline"
+                      size={14}
+                      color="#FFFFFF"
+                    />
+                    <Text style={styles.featureBadgeText}>Audio</Text>
+                  </View>
+                )}
+                {attraction.hasAI && (
+                  <View style={[styles.featureBadge, styles.aiBadge]}>
+                    <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                    <Text style={styles.featureBadgeText}>AI</Text>
+                  </View>
+                )}
               </View>
+
+              {/* Year built */}
+              {attraction.yearBuilt && (
+                <View style={styles.yearBadge}>
+                  <Ionicons
+                    name="calendar-outline"
+                    size={12}
+                    color="#FFFFFF"
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text style={styles.yearText}>{attraction.yearBuilt}</Text>
+                </View>
+              )}
             </View>
 
             <View style={styles.content}>
@@ -128,11 +187,18 @@ export default function AttractionsScreen({
                 <View style={styles.titleWrapper}>
                   <Text style={styles.title}>{attraction.title}</Text>
                   <View style={styles.locationRow}>
-                    <Ionicons name="location-sharp" size={16} color="#1B4D3E" style={{ marginRight: 4 }} />
-                    <Text style={styles.locationText}>{attraction.location}, Bydgoszcz</Text>
+                    <Ionicons
+                      name="location-sharp"
+                      size={16}
+                      color="#1B4D3E"
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text style={styles.locationText}>
+                      {attraction.location}, Bydgoszcz
+                    </Text>
                   </View>
                 </View>
-                
+
                 <View style={styles.arrowButton}>
                   <Ionicons name="arrow-forward" size={24} color="#FFFFFF" />
                 </View>
@@ -144,18 +210,55 @@ export default function AttractionsScreen({
                 {attraction.description}
               </Text>
 
-              <View style={styles.footer}>
-                <View style={styles.tag}>
-                  <Text style={styles.tagText}>#Zabytek</Text>
+              {/* Opening hours if available */}
+              {attraction.openingHours && (
+                <View style={styles.hoursContainer}>
+                  <Ionicons
+                    name="time-outline"
+                    size={14}
+                    color="#666"
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={styles.hoursText}>
+                    {attraction.openingHours}
+                  </Text>
                 </View>
-                <View style={styles.tagActive}>
-                  <Text style={styles.tagTextActive}>#{attraction.location.split(' ')[0]}</Text>
+              )}
+
+              <View style={styles.footer}>
+                <View style={styles.tagsRow}>
+                  <View style={styles.tag}>
+                    <Text style={styles.tagText}>#{attraction.category}</Text>
+                  </View>
+                  <View style={styles.tagActive}>
+                    <Text style={styles.tagTextActive}>
+                      #{attraction.location.split(' ')[0]}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Quick info */}
+                <View style={styles.quickInfo}>
+                  <Text style={styles.funFactsCount}>
+                    {attraction.funFacts?.length || 0} ciekawostek
+                  </Text>
                 </View>
               </View>
-
             </View>
           </TouchableOpacity>
         ))}
+
+        {/* Footer info */}
+        <View style={styles.footerInfo}>
+          <Ionicons
+            name="information-circle-outline"
+            size={20}
+            color="rgba(255,255,255,0.6)"
+          />
+          <Text style={styles.footerInfoText}>
+            Kliknij w atrakcję, aby zobaczyć szczegóły, AR i audio guide
+          </Text>
+        </View>
       </ScrollView>
     </View>
   );
@@ -164,194 +267,311 @@ export default function AttractionsScreen({
 const styles = StyleSheet.create({
   mainWrapper: {
     flex: 1,
-    backgroundColor: '#f5f5f5', 
+    backgroundColor: '#f5f5f5',
     position: 'relative',
-    overflow: 'hidden',
+    overflow: 'hidden'
   },
   shimmerContainer: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 0,
+    zIndex: 0
   },
   rotatingGradient: {
     width: GRADIENT_SIZE,
     height: GRADIENT_SIZE,
-    position: 'absolute',
+    position: 'absolute'
   },
   scrollViewContainer: {
     flex: 1,
     backgroundColor: 'transparent',
-    zIndex: 1,
+    zIndex: 1
   },
   scrollContent: {
     padding: 20,
-    paddingBottom: 40,
+    paddingTop: 16
   },
-  screenHeader: {
-    justifyContent: 'center',
+  statsContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
     alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 5,
+    justifyContent: 'space-around',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8
+      },
+      android: {
+        elevation: 4
+      }
+    })
   },
-  screenTitle: {
-    marginBottom: 30,
-    fontSize: 35 ,
-    // fontWeight: '800', // Usuwamy standardowy bold, bo używamy fontu Bold
-    fontFamily: 'Kollektif-Bold', // Nowa czcionka
-    color: '#ffffffff',
-    letterSpacing: -0.5,
+  statItem: {
+    alignItems: 'center',
+    flex: 1
   },
-  screenSubtitle: {
-    fontSize: 16,
-    fontFamily: 'Kollektif', // Nowa czcionka
+  statNumber: {
+    fontSize: 24,
+    fontFamily: 'Kollektif-Bold',
+    color: '#1B4D3E'
+  },
+  statLabel: {
+    fontSize: 12,
+    fontFamily: 'Kollektif',
     color: '#666',
-    marginTop: 4,
+    marginTop: 2
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: '#E0E0E0'
   },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
-    marginBottom: 24,
+    marginBottom: 20,
     overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 10 },
         shadowOpacity: 0.15,
-        shadowRadius: 20,
+        shadowRadius: 20
       },
       android: {
-        elevation: 8,
-      },
-    }),
+        elevation: 8
+      }
+    })
   },
   imageContainer: {
-    height: 220,
+    height: 200,
     width: '100%',
     position: 'relative',
-    backgroundColor: '#E0E7FF',
+    backgroundColor: '#E0E7FF'
   },
   image: {
     width: '100%',
-    height: '100%',
+    height: '100%'
   },
-  favoriteButton: {
+  imageGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 80
+  },
+  categoryBadge: {
     position: 'absolute',
     top: 16,
-    right: 16,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderRadius: 18,
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ratingBadge: {
-    position: 'absolute',
-    bottom: 16,
     left: 16,
     backgroundColor: 'rgba(27, 77, 62, 0.95)',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 12,
+    borderRadius: 8
+  },
+  categoryText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontFamily: 'Kollektif-Bold',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5
+  },
+  featuresBadges: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    flexDirection: 'row',
+    gap: 8
+  },
+  featureBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4
   },
-  ratingText: {
+  arBadge: {
+    backgroundColor: 'rgba(139, 92, 246, 0.9)'
+  },
+  audioBadge: {
+    backgroundColor: 'rgba(74, 222, 128, 0.9)'
+  },
+  aiBadge: {
+    backgroundColor: 'rgba(251, 191, 36, 0.9)'
+  },
+  featureBadgeText: {
     color: '#FFFFFF',
-    // fontWeight: '700',
-    fontFamily: 'Kollektif-Bold', // Nowa czcionka
-    fontSize: 14,
-    marginRight: 4,
+    fontSize: 10,
+    fontFamily: 'Kollektif-Bold'
   },
-  ratingCount: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 12,
+  yearBadge: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  yearText: {
+    color: '#FFFFFF',
     fontFamily: 'Kollektif',
+    fontSize: 12
   },
   content: {
-    padding: 20,
+    padding: 20
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: 12
   },
   titleWrapper: {
     flex: 1,
-    paddingRight: 10,
+    paddingRight: 10
   },
   title: {
-    fontSize: 22,
-    // fontWeight: '800',
-    fontFamily: 'Kollektif-Bold', // Nowa czcionka dla tytułu
+    fontSize: 20,
+    fontFamily: 'Kollektif-Bold',
     color: '#000000',
     marginBottom: 6,
-    lineHeight: 26,
+    lineHeight: 24
   },
   locationRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'center'
   },
   locationText: {
     fontSize: 13,
     color: '#1B4D3E',
-    // fontWeight: '600',
-    fontFamily: 'Kollektif-Bold', // Lub zwykły Kollektif, zależnie od preferencji
+    fontFamily: 'Kollektif-Bold'
   },
   arrowButton: {
-    backgroundColor: '#000000',
+    backgroundColor: '#1B4D3E',
     width: 44,
     height: 44,
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#1B4D3E',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8
+      },
+      android: {
+        elevation: 4
+      }
+    })
   },
   separator: {
     height: 1,
     backgroundColor: '#EEEEEE',
     width: '100%',
-    marginBottom: 16,
+    marginBottom: 12
   },
   description: {
     fontSize: 14,
     lineHeight: 22,
     color: '#555555',
-    marginBottom: 20,
-    fontFamily: 'Kollektif', // Nowa czcionka
+    marginBottom: 12,
+    fontFamily: 'Kollektif'
+  },
+  funFactContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FEF3C7',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 12,
+    gap: 10
+  },
+  funFactIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FDE68A',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  funFactText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#92400E',
+    fontFamily: 'Kollektif'
+  },
+  hoursContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12
+  },
+  hoursText: {
+    fontSize: 12,
+    color: '#666',
+    fontFamily: 'Kollektif'
   },
   footer: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  tagsRow: {
+    flexDirection: 'row',
+    gap: 8
   },
   tag: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F5F5F5'
   },
   tagText: {
     color: '#666666',
     fontSize: 12,
-    // fontWeight: '500',
-    fontFamily: 'Kollektif',
+    fontFamily: 'Kollektif'
   },
   tagActive: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: '#E8F5E9',
+    backgroundColor: '#E8F5E9'
   },
   tagTextActive: {
     color: '#1B4D3E',
     fontSize: 12,
-    // fontWeight: '600',
-    fontFamily: 'Kollektif-Bold',
+    fontFamily: 'Kollektif-Bold'
+  },
+  quickInfo: {
+    alignItems: 'flex-end'
+  },
+  funFactsCount: {
+    fontSize: 11,
+    color: '#999',
+    fontFamily: 'Kollektif'
+  },
+  footerInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 20,
+    paddingHorizontal: 20
+  },
+  footerInfoText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
+    fontFamily: 'Kollektif',
+    textAlign: 'center'
   }
 });
