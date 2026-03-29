@@ -1,3 +1,3 @@
-# Bydgoszcz Mobile App 📱
+# Lublin Mobile App 📱
 
-Aplikacja mobilna React Native z nawigacją dla miasta Bydgoszcz.
+Aplikacja mobilna React Native z nawigacją dla miasta Lublin.

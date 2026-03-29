@@ -214,7 +214,7 @@ export default function DetailsScreen({
             <Text style={styles.title}>{title}</Text>
             <View style={styles.locationRow}>
               <Ionicons name="location-sharp" size={18} color="#1B4D3E" />
-              <Text style={styles.locationText}>{location}, Bydgoszcz</Text>
+              <Text style={styles.locationText}>{location}, Lublin</Text>
             </View>
           </View>
 
@@ -462,7 +462,7 @@ export default function DetailsScreen({
                 </Text>
               </View>
               <View style={styles.tag}>
-                <Text style={styles.tagText}>#Bydgoszcz</Text>
+                <Text style={styles.tagText}>#Lublin</Text>
               </View>
               {attraction?.hasAR && (
                 <View style={styles.tagAR}>

@@ -63,13 +63,13 @@ export default function AttractionsScreen({
 
       const message = `🏛️ ${attraction.title}
 
-📍 ${attraction.location}, Bydgoszcz
+📍 ${attraction.location}, Lublin
 ${attraction.yearBuilt ? `📅 Rok: ${attraction.yearBuilt}\n` : ''}
 ${attraction.description}
 
 ${features.length > 0 ? `\n✨ Dostępne funkcje:\n${features.join('\n')}` : ''}
 
-🔗 Odkryj więcej atrakcji Bydgoszczy w aplikacji BydgoszczExplorer!`;
+🔗 Odkryj więcej atrakcji Lublina w aplikacji LublinExplorer!`;
 
       const result = await Share.share({
         message,
@@ -230,7 +230,7 @@ ${features.length > 0 ? `\n✨ Dostępne funkcje:\n${features.join('\n')}` : ''}
                       style={{ marginRight: 4 }}
                     />
                     <Text style={styles.locationText}>
-                      {attraction.location}, Bydgoszcz
+                      {attraction.location}, Lublin
                     </Text>
                   </View>
                 </View>

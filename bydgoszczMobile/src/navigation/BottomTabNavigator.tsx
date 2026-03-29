@@ -113,7 +113,7 @@ export default function BottomTabNavigator() {
         component={MapScreen}
         options={{
           tabBarLabel: 'Mapa',
-          title: 'Mapa Bydgoszczy'
+          title: 'Mapa Lublina'
         }}
       />
       <Tab.Screen

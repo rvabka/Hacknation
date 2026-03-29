@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "bydgoszczMobile",
-    "slug": "bydgoszczMobile",
+    "name": "lublinMobile",
+    "slug": "lublinMobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,10 +14,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.bydgoszcz.mobile",
+      "bundleIdentifier": "com.lublin.mobile",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Ta aplikacja potrzebuje dostępu do Twojej lokalizacji, aby pokazać Ci pobliskie atrakcje Bydgoszczy.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Ta aplikacja potrzebuje dostępu do Twojej lokalizacji, aby pokazać Ci pobliskie atrakcje Bydgoszczy."
+        "NSLocationWhenInUseUsageDescription": "Ta aplikacja potrzebuje dostępu do Twojej lokalizacji, aby pokazać Ci pobliskie atrakcje Lublina.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Ta aplikacja potrzebuje dostępu do Twojej lokalizacji, aby pokazać Ci pobliskie atrakcje Lublina."
       },
       "config": {
         "googleMapsApiKey": "IfGiBsZ0PUv6xfgDrzcwLhgcCeU="
@@ -30,7 +30,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.bydgoszcz.mobile",
+      "package": "com.lublin.mobile",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
@@ -48,7 +48,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Zezwól aplikacji Bydgoszcz Mobile na dostęp do Twojej lokalizacji."
+          "locationAlwaysAndWhenInUsePermission": "Zezwól aplikacji Lublin Mobile na dostęp do Twojej lokalizacji."
         }
       ],
       "expo-asset"

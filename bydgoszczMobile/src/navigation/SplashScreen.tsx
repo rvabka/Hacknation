@@ -195,7 +195,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
             }
           ]}
         >
-          <Text style={styles.title}>Odkryj Bydgoszcz</Text>
+          <Text style={styles.title}>Odkryj Lublin</Text>
           <Text style={styles.subtitle}>
             Twój przewodnik po atrakcjach miasta
           </Text>
@@ -251,7 +251,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
         <View style={styles.madeWithLove}>
           <Text style={styles.madeWithText}>Made with</Text>
           <Ionicons name="heart" size={12} color="#EF4444" />
-          <Text style={styles.madeWithText}>in Bydgoszcz</Text>
+          <Text style={styles.madeWithText}>in Lublin</Text>
         </View>
       </View>
     </View>

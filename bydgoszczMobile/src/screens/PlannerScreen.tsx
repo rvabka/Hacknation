@@ -159,7 +159,7 @@ export default function PlannerScreen({ navigation }: any) {
           'Brak dostępu',
           'Włącz dostęp do lokalizacji, aby zaplanować trasę od Twojego miejsca'
         );
-        setUserLocation({ latitude: 53.1235, longitude: 18.0084 });
+        setUserLocation({ latitude: 51.2465, longitude: 22.5684 });
       } else {
         const location = await Location.getCurrentPositionAsync({});
         setUserLocation({
@@ -168,7 +168,7 @@ export default function PlannerScreen({ navigation }: any) {
         });
       }
     } catch (error) {
-      setUserLocation({ latitude: 53.1235, longitude: 18.0084 });
+      setUserLocation({ latitude: 51.2465, longitude: 22.5684 });
     }
     setIsGettingLocation(false);
   };
@@ -294,7 +294,7 @@ export default function PlannerScreen({ navigation }: any) {
         )
         .join('\n');
 
-      const prompt = `Jesteś lokalnym przewodnikiem po Bydgoszczy. Turysta ma ${time} minut na zwiedzanie w tempie "${pace}".
+      const prompt = `Jesteś lokalnym przewodnikiem po Lublinie. Turysta ma ${time} minut na zwiedzanie w tempie "${pace}".
 Zaplanowana trasa:
 ${routeDescription}
 

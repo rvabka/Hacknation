@@ -27,11 +27,11 @@ import {
   getARCount
 } from '../data/attractions';
 
-const BYDGOSZCZ_COORDS: Region = {
-  latitude: 53.1235,
-  longitude: 18.0084,
-  latitudeDelta: 0.05,
-  longitudeDelta: 0.05
+const LUBLIN_COORDS: Region = {
+  latitude: 51.2465,
+  longitude: 22.5684,
+  latitudeDelta: 0.03,
+  longitudeDelta: 0.03
 };
 
 const CLUSTER_ZOOM_THRESHOLD = 0.025;
@@ -140,7 +140,7 @@ export default function MapScreen() {
     latitude: number;
     longitude: number;
   } | null>(null);
-  const [region, setRegion] = useState<Region>(BYDGOSZCZ_COORDS);
+  const [region, setRegion] = useState<Region>(LUBLIN_COORDS);
   const [isCardVisible, setIsCardVisible] = useState(false);
   const [mapReady, setMapReady] = useState(false);
 
@@ -393,7 +393,7 @@ export default function MapScreen() {
         ref={mapRef}
         style={styles.map}
         provider={isAndroid ? PROVIDER_GOOGLE : undefined}
-        initialRegion={BYDGOSZCZ_COORDS}
+        initialRegion={LUBLIN_COORDS}
         onRegionChangeComplete={setRegion}
         onMapReady={() => setMapReady(true)}
         showsUserLocation
