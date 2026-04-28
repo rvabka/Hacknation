@@ -24,12 +24,17 @@ const GRADIENT_SIZE = Math.sqrt(width * width + height * height) * 1.5;
 
 const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
 
-import { attractions, Attraction } from '../data/attractions';
+import { Attraction } from '../data/attractions';
+import { useAttractions } from '../hooks/useAttractions';
+import { useFavorites } from '../hooks/useFavorites';
+import { ActivityIndicator } from 'react-native';
 
 export default function AttractionsScreen({
   navigation
 }: AttractionsScreenProps) {
   const insets = useSafeAreaInsets();
+  const { attractions, loading } = useAttractions();
+  const { isFavorite, toggleFavorite } = useFavorites();
 
   const [fontsLoaded] = useFonts({
     Kollektif: require('../../assets/fonts/Kollektif.ttf'),
@@ -87,6 +92,19 @@ ${features.length > 0 ? `\n✨ Dostępne funkcje:\n${features.join('\n')}` : ''}
     return null;
   }
 
+  if (loading && attractions.length === 0) {
+    return (
+      <View
+        style={[
+          styles.mainWrapper,
+          { justifyContent: 'center', alignItems: 'center' }
+        ]}
+      >
+        <ActivityIndicator size="large" color="#1B4D3E" />
+      </View>
+    );
+  }
+
   const bottomPadding = 60 + insets.bottom + 20;
 
   return (
@@ -138,7 +156,7 @@ ${features.length > 0 ? `\n✨ Dostępne funkcje:\n${features.join('\n')}` : ''}
           </View>
         </View>
 
-        {attractions.map((attraction, index) => (
+        {attractions.map(attraction => (
           <TouchableOpacity
             key={attraction.id}
             style={styles.card}
@@ -178,6 +196,22 @@ ${features.length > 0 ? `\n✨ Dostępne funkcje:\n${features.join('\n')}` : ''}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Ionicons name="share-outline" size={18} color="#FFFFFF" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.favoriteButton}
+                onPress={e => {
+                  e.stopPropagation();
+                  toggleFavorite(attraction.id);
+                }}
+                activeOpacity={0.8}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons
+                  name={isFavorite(attraction.id) ? 'heart' : 'heart-outline'}
+                  size={18}
+                  color={isFavorite(attraction.id) ? '#FF4D6D' : '#FFFFFF'}
+                />
               </TouchableOpacity>
 
               <View style={styles.featuresBadges}>
@@ -418,6 +452,19 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 56,
     left: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)'
+  },
+  favoriteButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
     width: 36,
     height: 36,
     borderRadius: 18,

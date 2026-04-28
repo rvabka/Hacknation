@@ -18,10 +18,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFonts } from 'expo-font';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { DetailsScreenProps } from '../navigation/types';
-import { attractions } from '../data/attractions';
 import AudioPlayerModal from '../components/AudioPlayer';
 import GeminiChatModal from '../components/GeminiChatModal';
 import ARViewModal from '../components/ARViewModal';
+import { useFavorites } from '../hooks/useFavorites';
+import { useAttractions } from '../hooks/useAttractions';
 
 const { width, height } = Dimensions.get('window');
 const GRADIENT_SIZE = Math.sqrt(width * width + height * height) * 1.5;
@@ -35,7 +36,10 @@ export default function DetailsScreen({
   const { id, title, description, location } = route.params;
   const insets = useSafeAreaInsets();
 
+  const { attractions } = useAttractions();
   const attraction = attractions.find(a => a.id === id);
+
+  const { isFavorite, toggleFavorite } = useFavorites();
 
   const [showAudioModal, setShowAudioModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
@@ -198,6 +202,19 @@ export default function DetailsScreen({
                 <Text style={styles.yearBadgeText}>{attraction.yearBuilt}</Text>
               </View>
             )}
+
+            <TouchableOpacity
+              style={styles.heroFavoriteButton}
+              onPress={() => toggleFavorite(id)}
+              activeOpacity={0.8}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name={isFavorite(id) ? 'heart' : 'heart-outline'}
+                size={20}
+                color={isFavorite(id) ? '#FF4D6D' : '#FFFFFF'}
+              />
+            </TouchableOpacity>
           </Animated.View>
         )}
 
@@ -612,6 +629,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 10
+  },
+  heroFavoriteButton: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)'
   },
   yearBadgeText: {
     color: '#FFFFFF',

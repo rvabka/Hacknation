@@ -21,11 +21,10 @@ import * as Location from 'expo-location';
 import ARViewModal from '../components/ARViewModal';
 import { useAppNavigation } from '../hooks/useAppNavigation';
 import {
-  attractions,
   CATEGORY_ICONS,
-  CATEGORY_COLORS,
-  getARCount
+  CATEGORY_COLORS
 } from '../data/attractions';
+import { useAttractions } from '../hooks/useAttractions';
 
 const LUBLIN_COORDS: Region = {
   latitude: 51.2465,
@@ -131,6 +130,11 @@ const iosStyles = StyleSheet.create({
 export default function MapScreen() {
   const navigation = useAppNavigation();
   const insets = useSafeAreaInsets();
+  const { attractions } = useAttractions();
+  const arCount = useMemo(
+    () => attractions.filter(a => a.model || a.hasAR).length,
+    [attractions]
+  );
   const mapRef = useRef<MapView>(null);
   const cardAnim = useRef(new Animated.Value(0)).current;
 
@@ -146,22 +150,24 @@ export default function MapScreen() {
 
   const selectedAttraction = useMemo(
     () => attractions.find(a => a.id === selectedId) || null,
-    [selectedId]
+    [selectedId, attractions]
   );
 
   const showIndividualMarkers = region.latitudeDelta < CLUSTER_ZOOM_THRESHOLD;
 
-  const clusterCenter = useMemo(
-    () => ({
+  const clusterCenter = useMemo(() => {
+    if (attractions.length === 0) {
+      return { latitude: LUBLIN_COORDS.latitude, longitude: LUBLIN_COORDS.longitude };
+    }
+    return {
       latitude:
         attractions.reduce((sum, a) => sum + a.coordinate.latitude, 0) /
         attractions.length,
       longitude:
         attractions.reduce((sum, a) => sum + a.coordinate.longitude, 0) /
         attractions.length
-    }),
-    []
-  );
+    };
+  }, [attractions]);
 
   const getCategoryIcon = useCallback(
     (category: string) =>
@@ -414,7 +420,7 @@ export default function MapScreen() {
           <Text style={styles.statText}>{attractions.length} miejsc</Text>
           <View style={styles.divider} />
           <Ionicons name="cube-outline" size={14} color="#4ADE80" />
-          <Text style={styles.statText}>{getARCount()} AR</Text>
+          <Text style={styles.statText}>{arCount} AR</Text>
         </View>
         <TouchableOpacity
           style={styles.locationBtn}

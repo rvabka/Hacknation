@@ -18,11 +18,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { useFonts } from 'expo-font';
 import {
-  attractions,
   Attraction,
   CATEGORY_COLORS,
   CATEGORY_ICONS
 } from '../data/attractions';
+import { useAttractions } from '../hooks/useAttractions';
 
 const { width, height } = Dimensions.get('window');
 const GRADIENT_SIZE = Math.sqrt(width * width + height * height) * 1.5;
@@ -113,6 +113,7 @@ const calculateWalkingTime = (distanceMeters: number): number => {
 
 export default function PlannerScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
+  const { attractions } = useAttractions();
   const [fontsLoaded] = useFonts({
     Kollektif: require('../../assets/fonts/Kollektif.ttf'),
     'Kollektif-Bold': require('../../assets/fonts/Kollektif-Bold.ttf')
