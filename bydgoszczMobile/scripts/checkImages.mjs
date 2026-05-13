@@ -39,11 +39,26 @@ const withoutImage = data.filter(a => !a.image_url);
 console.log(`Łącznie: ${data.length}`);
 console.log(`Ze zdjęciem: ${withImage.length}`);
 console.log(`Bez zdjęcia: ${withoutImage.length}`);
-console.log('\n=== Przykłady ze zdjęciem ===');
-withImage.slice(0, 5).forEach(a => {
-  console.log(`- ${a.title}\n  ${a.image_url}`);
+
+// Statystyki źródeł zdjęć
+const sources = { google: 0, wikipedia: 0, commons: 0, other: 0 };
+withImage.forEach(a => {
+  const u = a.image_url;
+  if (u.includes('googleapis.com')) sources.google++;
+  else if (u.includes('upload.wikimedia.org')) sources.wikipedia++;
+  else if (u.includes('commons.wikimedia.org')) sources.commons++;
+  else sources.other++;
 });
-console.log('\n=== Przykłady bez zdjęcia ===');
-withoutImage.slice(0, 5).forEach(a => {
-  console.log(`- ${a.title}`);
+console.log('\n=== Źródła zdjęć ===');
+console.log(`Google Places: ${sources.google}`);
+console.log(`Wikipedia (upload): ${sources.wikipedia}`);
+console.log(`Wikimedia Commons: ${sources.commons}`);
+console.log(`Inne: ${sources.other}`);
+
+console.log('\n=== Pierwsze 20 atrakcji ===');
+data.slice(0, 20).forEach(a => {
+  const src = a.image_url?.includes('googleapis.com') ? '[GOOGLE]' :
+              a.image_url?.includes('wikimedia') ? '[WIKI]' :
+              a.image_url ? '[OTHER]' : '[BRAK]';
+  console.log(`${src} ${a.title}`);
 });

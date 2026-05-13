@@ -45,7 +45,6 @@ const OVERPASS_URLS = [
   'https://lz4.overpass-api.de/api/interpreter',
   'https://z.overpass-api.de/api/interpreter'
 ];
-const WIKI_BASE = 'https://pl.wikipedia.org/api/rest_v1/page/summary/';
 const LUBLIN_BBOX = '51.18,22.45,51.30,22.65';
 
 const overpassQuery = `
@@ -61,7 +60,7 @@ const overpassQuery = `
 out center 250;
 `;
 
-// === Czytelna nazwa typu OSM (dla syntetycznego opisu) ===
+// === Czytelna nazwa typu OSM (dla syntetycznego opisu gdy brak Wiki) ===
 function osmTypeLabel(tags) {
   const t = tags || {};
   if (t.tourism === 'museum') return 'muzeum';
@@ -84,6 +83,53 @@ function osmTypeLabel(tags) {
   if (t.historic === 'building') return 'zabytkowy budynek';
   if (t.historic) return 'obiekt historyczny';
   return 'miejsce w Lublinie';
+}
+
+function generateSyntheticDescription(name, tags) {
+  const typeLabel = osmTypeLabel(tags);
+  const street = tags['addr:street'] || tags['addr:place'];
+  const year = tags.start_date || tags['building:start_date'];
+  const parts = [`${name} – ${typeLabel} w Lublinie.`];
+  if (street) parts.push(`Znajduje się przy ${street}.`);
+  if (year) parts.push(`Powstał(a) w ${year}.`);
+  if (tags.architect) parts.push(`Architekt: ${tags.architect}.`);
+  return parts.join(' ');
+}
+
+// === Whitelist: znane atrakcje Lublina z dokładnymi tytułami Wikipedii ===
+// Klucz: znormalizowana nazwa OSM (lowercase, bez znaków diakrytycznych)
+// Wartość: dokładny tytuł artykułu na pl.wikipedia.org
+const FAMOUS_LANDMARKS_WIKI = {
+  'zamek lubelski': 'Zamek w Lublinie',
+  'brama krakowska': 'Brama Krakowska w Lublinie',
+  'brama grodzka': 'Brama Grodzka w Lublinie',
+  'katedra lubelska': 'Archikatedra św. Jana Chrzciciela i św. Jana Ewangelisty w Lublinie',
+  'archikatedra lubelska': 'Archikatedra św. Jana Chrzciciela i św. Jana Ewangelisty w Lublinie',
+  'plac litewski': 'Plac Litewski w Lublinie',
+  'trybunal koronny': 'Trybunał Koronny w Lublinie',
+  'trybunał koronny': 'Trybunał Koronny w Lublinie',
+  'stare miasto': 'Stare Miasto w Lublinie',
+  'pomnik unii lubelskiej': 'Pomnik Unii Lubelskiej w Lublinie',
+  'centrum spotkania kultur': 'Centrum Spotkania Kultur w Lublinie',
+  'kosciol dominikanow': 'Bazylika św. Stanisława w Lublinie',
+  'kościół dominikanów': 'Bazylika św. Stanisława w Lublinie',
+  'bazylika dominikanow': 'Bazylika św. Stanisława w Lublinie',
+  'wieża trynitarska': 'Wieża Trynitarska w Lublinie',
+  'wieza trynitarska': 'Wieża Trynitarska w Lublinie',
+  'ogród saski': 'Ogród Saski w Lublinie',
+  'ogrod saski': 'Ogród Saski w Lublinie',
+  'kul': 'Katolicki Uniwersytet Lubelski Jana Pawła II',
+  'umcs': 'Uniwersytet Marii Curie-Skłodowskiej',
+  'państwowe muzeum na majdanku': 'Państwowe Muzeum na Majdanku'
+};
+
+function normName(s) {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 // === Mapowanie kategorii OSM → CategoryType w aplikacji ===
@@ -158,6 +204,65 @@ async function fetchWiki(title, lang = 'pl') {
   }
 }
 
+// === Google Places API – główne źródło zdjęć ===
+const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY ?? '';
+const GOOGLE_FIND_PLACE_URL =
+  'https://maps.googleapis.com/maps/api/place/findplacefromtext/json';
+const GOOGLE_PHOTO_URL = 'https://maps.googleapis.com/maps/api/place/photo';
+
+// Dystans w metrach (Haversine)
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// Wyszukuje miejsce po nazwie z bias na koordynaty OSM.
+// Zwraca obiekt z place_id + photos + geometry LUB null gdy:
+//  - brak API key
+//  - nie znaleziono żadnego kandydata
+//  - kandydat jest dalej niż 250m od OSM (prawdopodobnie zły obiekt)
+async function fetchGooglePlace(name, lat, lon) {
+  if (!GOOGLE_PLACES_API_KEY) return null;
+  try {
+    const params = new URLSearchParams({
+      input: name,
+      inputtype: 'textquery',
+      fields: 'place_id,name,photos,geometry,types',
+      locationbias: `circle:5000@${lat},${lon}`,
+      language: 'pl',
+      key: GOOGLE_PLACES_API_KEY
+    });
+    const res = await fetch(`${GOOGLE_FIND_PLACE_URL}?${params}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.status !== 'OK') return null;
+    const cand = data.candidates?.[0];
+    if (!cand) return null;
+
+    const gLat = cand.geometry?.location?.lat;
+    const gLng = cand.geometry?.location?.lng;
+    if (gLat == null || gLng == null) return null;
+
+    const distance = haversineMeters(lat, lon, gLat, gLng);
+    if (distance > 250) return null; // dopasowanie geograficzne nieudane
+
+    return cand;
+  } catch {
+    return null;
+  }
+}
+
+function buildGooglePhotoUrl(photoRef, maxWidth = 800) {
+  if (!photoRef || !GOOGLE_PLACES_API_KEY) return null;
+  return `${GOOGLE_PHOTO_URL}?maxwidth=${maxWidth}&photoreference=${encodeURIComponent(photoRef)}&key=${GOOGLE_PLACES_API_KEY}`;
+}
+
 // Wikidata P18 (image property) → Wikimedia Commons URL
 async function fetchWikidataImage(qid) {
   try {
@@ -174,63 +279,9 @@ async function fetchWikidataImage(qid) {
   }
 }
 
-// Wikimedia Commons geosearch – zdjęcia geotagowane w pobliżu danej koordynaty
-async function fetchCommonsByGeo(lat, lon, radiusM = 150) {
-  try {
-    const url =
-      `https://commons.wikimedia.org/w/api.php?` +
-      new URLSearchParams({
-        action: 'query',
-        list: 'geosearch',
-        gscoord: `${lat}|${lon}`,
-        gsradius: String(radiusM),
-        gsnamespace: '6',
-        gslimit: '5',
-        format: 'json'
-      });
-    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const files = data?.query?.geosearch ?? [];
-    const file = files.find(f => /\.(jpe?g|png|gif)$/i.test(f.title));
-    if (!file) return null;
-    const cleanName = file.title.replace(/^File:/, '');
-    return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(cleanName)}?width=800`;
-  } catch {
-    return null;
-  }
-}
-
-// Wikipedia geosearch z pageimages – znajduje pobliskie artykuły i bierze ich główne zdjęcie
-async function fetchWikiByGeo(lat, lon, radiusM = 100) {
-  try {
-    const url =
-      `https://pl.wikipedia.org/w/api.php?` +
-      new URLSearchParams({
-        action: 'query',
-        generator: 'geosearch',
-        ggscoord: `${lat}|${lon}`,
-        ggsradius: String(radiusM),
-        ggslimit: '5',
-        prop: 'pageimages',
-        piprop: 'original',
-        format: 'json'
-      });
-    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const pages = data?.query?.pages ?? {};
-    for (const k of Object.keys(pages)) {
-      const src = pages[k]?.original?.source;
-      if (src) return src;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// Wikipedia search (fuzzy) – znajduje stronę po przybliżonej nazwie + miasto
+// Wikipedia search (fuzzy) – znajduje stronę po przybliżonej nazwie + miasto.
+// Wymaga, by zwrócony artykuł wspominał "Lublin" – inaczej fuzzy łapie np.
+// dla nazwy "Aligator" artykuł o aligatorze-zwierzęciu.
 async function fetchWikiBySearch(name) {
   try {
     const query = `${name} Lublin`;
@@ -240,52 +291,54 @@ async function fetchWikiBySearch(name) {
         action: 'query',
         list: 'search',
         srsearch: query,
-        srlimit: '1',
+        srlimit: '3',
         format: 'json'
       });
     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
     if (!res.ok) return null;
     const data = await res.json();
-    const hit = data?.query?.search?.[0];
-    if (!hit) return null;
-    return await fetchWiki(hit.title, 'pl');
+    const hits = data?.query?.search ?? [];
+    for (const hit of hits) {
+      const wiki = await fetchWiki(hit.title, 'pl');
+      const text = `${wiki?.title ?? ''} ${wiki?.extract ?? ''} ${wiki?.description ?? ''}`.toLowerCase();
+      if (wiki && text.includes('lublin')) return wiki;
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
-// Wybiera najlepsze źródło zdjęcia w kolejności:
-// 1. OSM tag `image` (bezpośredni URL)
-// 2. Wikidata P18
-// 3. Wikipedia originalimage / thumbnail (z dokładnej nazwy)
-// 4. Wikipedia fuzzy search (np. "Apteka Muzeum Lublin")
-// 5. Wikipedia geosearch (pobliskie artykuły + ich pageimages)
-// 6. Wikimedia Commons geosearch (geotagowane pliki w pobliżu)
-async function resolveImageUrl(tags, wiki, name, lat, lon) {
-  if (tags.image && /^https?:\/\//i.test(tags.image)) {
+// STRICT MODE: tylko zaufane źródła zdjęć ŚCIŚLE związanych z atrakcją.
+// Geosearch / Mapillary są wyłączone bo zwracają zdjęcia niezwiązane z obiektem.
+const BLOCKED_IMAGE_HOSTS = [
+  'photos.app.goo.gl',     // Google Photos share-linki (nie renderują się w <Image>)
+  'photos.google.com',
+  'drive.google.com',
+  'facebook.com',
+  'instagram.com'
+];
+
+function isUsableImageUrl(url) {
+  if (!url || !/^https?:\/\//i.test(url)) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return !BLOCKED_IMAGE_HOSTS.some(b => host.endsWith(b));
+  } catch {
+    return false;
+  }
+}
+
+async function resolveImageUrl(tags, wiki) {
+  if (isUsableImageUrl(tags.image)) {
     return tags.image;
   }
   if (tags.wikidata && /^Q\d+$/.test(tags.wikidata)) {
     const img = await fetchWikidataImage(tags.wikidata);
-    if (img) return img;
+    if (isUsableImageUrl(img)) return img;
   }
   const wikiImg = wiki?.originalimage?.source ?? wiki?.thumbnail?.source ?? null;
-  if (wikiImg) return wikiImg;
-
-  if (name) {
-    const fuzzyWiki = await fetchWikiBySearch(name);
-    const fuzzyImg = fuzzyWiki?.originalimage?.source ?? fuzzyWiki?.thumbnail?.source;
-    if (fuzzyImg) return fuzzyImg;
-  }
-
-  if (lat != null && lon != null) {
-    const geoWiki = await fetchWikiByGeo(lat, lon, 100);
-    if (geoWiki) return geoWiki;
-
-    const geoCommons = await fetchCommonsByGeo(lat, lon, 150);
-    if (geoCommons) return geoCommons;
-  }
-  return null;
+  return isUsableImageUrl(wikiImg) ? wikiImg : null;
 }
 
 // === Główna logika ===
@@ -312,29 +365,48 @@ async function main() {
     const lon = el.lon ?? el.center?.lon;
     if (lat == null || lon == null) continue;
 
-    // Wikipedia – po tagu 'wikipedia' lub po nazwie
+    // === HYBRID MODE ===
+    // Wymagamy ZDJĘCIA z dowolnego zaufanego źródła. Opis bierzemy z Wiki
+    // jeśli istnieje, inaczej syntetyczny z OSM tagów.
+
+    // 1. Google Places (priorytet – realne zdjęcia z Google Maps + walidacja >250m)
+    const google = await fetchGooglePlace(name, lat, lon);
+    await sleep(40);
+
+    // 2. Wikipedia – dla opisu (whitelist → tag → exact → fuzzy z weryfikacją "Lublin")
     let wiki = null;
-    if (tags.wikipedia) {
+    const whitelistTitle = FAMOUS_LANDMARKS_WIKI[normName(name)];
+    if (whitelistTitle) wiki = await fetchWiki(whitelistTitle, 'pl');
+    if (!wiki && tags.wikipedia) {
       const [lang, title] = tags.wikipedia.split(':');
       if (lang && title) wiki = await fetchWiki(title, lang);
     }
     if (!wiki) wiki = await fetchWiki(name, 'pl');
-    await sleep(50); // grzeczność dla Wikipedia API
+    if (!wiki) wiki = await fetchWikiBySearch(name);
+    await sleep(50);
 
-    let description = (wiki?.extract ?? tags.description ?? '').trim().slice(0, 600);
-
-    // Fallback: syntetyczny opis na podstawie OSM tagów
-    if (!description) {
-      const typeLabel = osmTypeLabel(tags);
-      const street = tags['addr:street'] || tags['addr:place'];
-      const year = tags.start_date || tags['building:start_date'];
-      const parts = [`${name} – ${typeLabel} w Lublinie.`];
-      if (street) parts.push(`Znajduje się przy ${street}.`);
-      if (year) parts.push(`Powstał(a) w ${year}.`);
-      if (tags.architect) parts.push(`Architekt: ${tags.architect}.`);
-      description = parts.join(' ');
+    // 3. Opis: Wiki preferowane, inaczej syntetyczny
+    let description = (wiki?.extract ?? '').trim().slice(0, 600);
+    if (description.length < 50) {
+      description = generateSyntheticDescription(name, tags);
     }
 
+    // 4. Zdjęcie: Google → OSM image → Wikidata → Wiki
+    let imageUrl = null;
+    const googlePhotoRef = google?.photos?.[0]?.photo_reference;
+    if (googlePhotoRef) {
+      imageUrl = buildGooglePhotoUrl(googlePhotoRef);
+    }
+    if (!imageUrl) {
+      imageUrl = await resolveImageUrl(tags, wiki);
+    }
+    if (!imageUrl) continue; // bez zdjęcia – pomijamy
+
+    // 5. Deduplikacja po Google place_id (kilka OSM elementów może mapować na to samo)
+    if (google?.place_id) {
+      if (seenTitles.has(`gpid:${google.place_id}`)) continue;
+      seenTitles.add(`gpid:${google.place_id}`);
+    }
     seenTitles.add(name.toLowerCase());
 
     const id = `${el.type}/${el.id}`;
@@ -345,9 +417,6 @@ async function main() {
             return `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(title)}`;
           })()
         : wiki?.content_urls?.desktop?.page ?? null;
-
-    const imageUrl = await resolveImageUrl(tags, wiki, name, lat, lon);
-    await sleep(40);
 
     rows.push({
       id,
@@ -384,6 +453,18 @@ async function main() {
   if (rows.length === 0) {
     console.warn('[seed] Brak rekordów do zapisu');
     return;
+  }
+
+  // STRICT MODE: czyścimy całą tabelę przed re-seedem, żeby pozbyć się
+  // starych "śmieciowych" rekordów (z syntetycznymi opisami i Mapillary).
+  console.log('[seed] Czyszczę istniejące atrakcje (i powiązane fun_facts via FK CASCADE)...');
+  const { error: delErr } = await supabase
+    .from('attractions')
+    .delete()
+    .neq('id', '__never__'); // hack: warunek zawsze true (delete all)
+  if (delErr) {
+    console.error('[seed] Błąd czyszczenia attractions:', delErr);
+    process.exit(1);
   }
 
   console.log(`[seed] Upsert ${rows.length} atrakcji do Supabase...`);
