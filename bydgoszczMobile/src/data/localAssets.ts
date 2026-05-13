@@ -59,3 +59,18 @@ const ASSETS_BY_TITLE: Record<string, LocalAssets> = {
 export function getLocalAssets(title: string): LocalAssets {
   return ASSETS_BY_TITLE[norm(title)] ?? {};
 }
+
+// Generyczne zdjęcia per kategoria – fallback gdy atrakcja nie ma swojego
+const CATEGORY_FALLBACK_IMAGES: Record<string, ImageSourcePropType> = {
+  Muzeum: require('../../assets/lucznik.jpeg'),
+  Sakralny: require('../../assets/kosciol.jpeg'),
+  Architektura: require('../../assets/poczta.jpeg'),
+  Rzeźba: require('../../assets/fontanna.jpeg'),
+  'Zabytek techniki': require('../../assets/cisnienie.jpeg')
+};
+
+export function getCategoryFallbackImage(
+  category: string
+): ImageSourcePropType | undefined {
+  return CATEGORY_FALLBACK_IMAGES[category];
+}

@@ -12,7 +12,8 @@ import {
   Platform,
   TouchableOpacity,
   Animated,
-  Easing
+  Easing,
+  Image
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -238,7 +239,7 @@ export default function MapScreen() {
       setSelectedId(id);
       animateCard(true);
     },
-    [selectedId, animateCard]
+    [selectedId, animateCard, attractions]
   );
 
   const handleClusterPress = useCallback(() => {
@@ -350,7 +351,8 @@ export default function MapScreen() {
     showIndividualMarkers,
     handleMarkerPress,
     handleClusterPress,
-    clusterCenter
+    clusterCenter,
+    attractions
   ]);
 
   const renderAndroidMarkers = useCallback(() => {
@@ -390,7 +392,8 @@ export default function MapScreen() {
     handleMarkerPress,
     handleClusterPress,
     clusterCenter,
-    getCategoryColor
+    getCategoryColor,
+    attractions
   ]);
 
   return (
@@ -448,6 +451,28 @@ export default function MapScreen() {
         <Animated.View
           style={[styles.card, { bottom: insets.bottom + 100 }, cardStyle]}
         >
+          {selectedAttraction.image ? (
+            <Image
+              source={selectedAttraction.image}
+              style={styles.cardBanner}
+              resizeMode="cover"
+            />
+          ) : (
+            <View
+              style={[
+                styles.cardBanner,
+                styles.cardBannerPlaceholder,
+                { backgroundColor: getCategoryColor(selectedAttraction.category) + '33' }
+              ]}
+            >
+              <Ionicons
+                name={getCategoryIcon(selectedAttraction.category) as any}
+                size={40}
+                color={getCategoryColor(selectedAttraction.category)}
+              />
+            </View>
+          )}
+
           <View style={styles.cardHeader}>
             <View
               style={[
@@ -672,6 +697,17 @@ const styles = StyleSheet.create({
       },
       android: { elevation: 12 }
     })
+  },
+  cardBanner: {
+    width: '100%',
+    height: 130,
+    borderRadius: 14,
+    marginBottom: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)'
+  },
+  cardBannerPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   cardHeader: {
     flexDirection: 'row',

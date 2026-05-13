@@ -61,6 +61,31 @@ const overpassQuery = `
 out center 250;
 `;
 
+// === Czytelna nazwa typu OSM (dla syntetycznego opisu) ===
+function osmTypeLabel(tags) {
+  const t = tags || {};
+  if (t.tourism === 'museum') return 'muzeum';
+  if (t.tourism === 'artwork') return 'instalacja artystyczna';
+  if (t.tourism === 'gallery') return 'galeria sztuki';
+  if (t.tourism === 'viewpoint') return 'punkt widokowy';
+  if (t.tourism === 'attraction') return 'atrakcja turystyczna';
+  if (t.amenity === 'place_of_worship') return 'obiekt sakralny';
+  if (t.historic === 'church') return 'zabytkowy kościół';
+  if (t.historic === 'chapel') return 'kaplica';
+  if (t.historic === 'monastery') return 'klasztor';
+  if (t.historic === 'castle') return 'zamek';
+  if (t.historic === 'monument') return 'pomnik';
+  if (t.historic === 'memorial') return 'miejsce pamięci';
+  if (t.historic === 'statue') return 'rzeźba';
+  if (t.historic === 'tower') return 'wieża';
+  if (t.historic === 'gate') return 'brama miejska';
+  if (t.historic === 'ruins') return 'ruiny';
+  if (t.historic === 'fort') return 'fortyfikacja';
+  if (t.historic === 'building') return 'zabytkowy budynek';
+  if (t.historic) return 'obiekt historyczny';
+  return 'miejsce w Lublinie';
+}
+
 // === Mapowanie kategorii OSM → CategoryType w aplikacji ===
 function mapCategory(tags) {
   const t = tags || {};
@@ -133,6 +158,136 @@ async function fetchWiki(title, lang = 'pl') {
   }
 }
 
+// Wikidata P18 (image property) → Wikimedia Commons URL
+async function fetchWikidataImage(qid) {
+  try {
+    const url = `https://www.wikidata.org/wiki/Special:EntityData/${qid}.json`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const claims = data?.entities?.[qid]?.claims;
+    const filename = claims?.P18?.[0]?.mainsnak?.datavalue?.value;
+    if (!filename) return null;
+    return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(filename)}?width=800`;
+  } catch {
+    return null;
+  }
+}
+
+// Wikimedia Commons geosearch – zdjęcia geotagowane w pobliżu danej koordynaty
+async function fetchCommonsByGeo(lat, lon, radiusM = 150) {
+  try {
+    const url =
+      `https://commons.wikimedia.org/w/api.php?` +
+      new URLSearchParams({
+        action: 'query',
+        list: 'geosearch',
+        gscoord: `${lat}|${lon}`,
+        gsradius: String(radiusM),
+        gsnamespace: '6',
+        gslimit: '5',
+        format: 'json'
+      });
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const files = data?.query?.geosearch ?? [];
+    const file = files.find(f => /\.(jpe?g|png|gif)$/i.test(f.title));
+    if (!file) return null;
+    const cleanName = file.title.replace(/^File:/, '');
+    return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(cleanName)}?width=800`;
+  } catch {
+    return null;
+  }
+}
+
+// Wikipedia geosearch z pageimages – znajduje pobliskie artykuły i bierze ich główne zdjęcie
+async function fetchWikiByGeo(lat, lon, radiusM = 100) {
+  try {
+    const url =
+      `https://pl.wikipedia.org/w/api.php?` +
+      new URLSearchParams({
+        action: 'query',
+        generator: 'geosearch',
+        ggscoord: `${lat}|${lon}`,
+        ggsradius: String(radiusM),
+        ggslimit: '5',
+        prop: 'pageimages',
+        piprop: 'original',
+        format: 'json'
+      });
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const pages = data?.query?.pages ?? {};
+    for (const k of Object.keys(pages)) {
+      const src = pages[k]?.original?.source;
+      if (src) return src;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Wikipedia search (fuzzy) – znajduje stronę po przybliżonej nazwie + miasto
+async function fetchWikiBySearch(name) {
+  try {
+    const query = `${name} Lublin`;
+    const url =
+      `https://pl.wikipedia.org/w/api.php?` +
+      new URLSearchParams({
+        action: 'query',
+        list: 'search',
+        srsearch: query,
+        srlimit: '1',
+        format: 'json'
+      });
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const hit = data?.query?.search?.[0];
+    if (!hit) return null;
+    return await fetchWiki(hit.title, 'pl');
+  } catch {
+    return null;
+  }
+}
+
+// Wybiera najlepsze źródło zdjęcia w kolejności:
+// 1. OSM tag `image` (bezpośredni URL)
+// 2. Wikidata P18
+// 3. Wikipedia originalimage / thumbnail (z dokładnej nazwy)
+// 4. Wikipedia fuzzy search (np. "Apteka Muzeum Lublin")
+// 5. Wikipedia geosearch (pobliskie artykuły + ich pageimages)
+// 6. Wikimedia Commons geosearch (geotagowane pliki w pobliżu)
+async function resolveImageUrl(tags, wiki, name, lat, lon) {
+  if (tags.image && /^https?:\/\//i.test(tags.image)) {
+    return tags.image;
+  }
+  if (tags.wikidata && /^Q\d+$/.test(tags.wikidata)) {
+    const img = await fetchWikidataImage(tags.wikidata);
+    if (img) return img;
+  }
+  const wikiImg = wiki?.originalimage?.source ?? wiki?.thumbnail?.source ?? null;
+  if (wikiImg) return wikiImg;
+
+  if (name) {
+    const fuzzyWiki = await fetchWikiBySearch(name);
+    const fuzzyImg = fuzzyWiki?.originalimage?.source ?? fuzzyWiki?.thumbnail?.source;
+    if (fuzzyImg) return fuzzyImg;
+  }
+
+  if (lat != null && lon != null) {
+    const geoWiki = await fetchWikiByGeo(lat, lon, 100);
+    if (geoWiki) return geoWiki;
+
+    const geoCommons = await fetchCommonsByGeo(lat, lon, 150);
+    if (geoCommons) return geoCommons;
+  }
+  return null;
+}
+
 // === Główna logika ===
 async function main() {
   const elements = await fetchOverpass();
@@ -166,10 +321,19 @@ async function main() {
     if (!wiki) wiki = await fetchWiki(name, 'pl');
     await sleep(50); // grzeczność dla Wikipedia API
 
-    const description =
-      (wiki?.extract ?? tags.description ?? '').trim().slice(0, 600);
+    let description = (wiki?.extract ?? tags.description ?? '').trim().slice(0, 600);
 
-    if (!description) continue; // pomijamy bezopisowe
+    // Fallback: syntetyczny opis na podstawie OSM tagów
+    if (!description) {
+      const typeLabel = osmTypeLabel(tags);
+      const street = tags['addr:street'] || tags['addr:place'];
+      const year = tags.start_date || tags['building:start_date'];
+      const parts = [`${name} – ${typeLabel} w Lublinie.`];
+      if (street) parts.push(`Znajduje się przy ${street}.`);
+      if (year) parts.push(`Powstał(a) w ${year}.`);
+      if (tags.architect) parts.push(`Architekt: ${tags.architect}.`);
+      description = parts.join(' ');
+    }
 
     seenTitles.add(name.toLowerCase());
 
@@ -181,6 +345,9 @@ async function main() {
             return `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(title)}`;
           })()
         : wiki?.content_urls?.desktop?.page ?? null;
+
+    const imageUrl = await resolveImageUrl(tags, wiki, name, lat, lon);
+    await sleep(40);
 
     rows.push({
       id,
@@ -194,7 +361,7 @@ async function main() {
       architect: tags.architect || null,
       opening_hours: tags.opening_hours || null,
       price: tags.fee === 'no' ? 'Wstęp bezpłatny' : null,
-      image_url: wiki?.thumbnail?.source ?? null,
+      image_url: imageUrl,
       wikipedia_url: wikipediaUrl,
       has_ar: false,
       has_audio: false,

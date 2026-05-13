@@ -4,7 +4,7 @@ import {
   Attraction,
   CategoryType
 } from '../data/attractions';
-import { getLocalAssets } from '../data/localAssets';
+import { getLocalAssets, getCategoryFallbackImage } from '../data/localAssets';
 
 interface DbAttractionRow {
   id: string;
@@ -37,13 +37,14 @@ const VALID_CATEGORIES: CategoryType[] = [
 function rowToAttraction(row: DbAttractionRow): Attraction {
   const assets = getLocalAssets(row.title);
 
-  const image =
-    assets.image ??
-    (row.image_url ? { uri: row.image_url } : undefined);
-
   const category: CategoryType = (VALID_CATEGORIES as string[]).includes(row.category)
     ? (row.category as CategoryType)
     : 'Architektura';
+
+  const image =
+    assets.image ??
+    (row.image_url ? { uri: row.image_url } : undefined) ??
+    getCategoryFallbackImage(category);
 
   const facts = (row.fun_facts ?? [])
     .sort((a, b) => a.order_idx - b.order_idx)
