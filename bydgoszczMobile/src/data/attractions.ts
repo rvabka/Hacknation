@@ -49,7 +49,6 @@ export const attractions: Attraction[] = [
   {
     id: '1',
     title: 'Zamek Lubelski',
-    image: require('../../assets/lucznik.jpeg'),
     description:
       'Dawna siedziba królewska i trybunał koronny. Obecnie mieści Muzeum Lubelskie z bogatą kolekcją malarstwa i rzemiosła artystycznego.',
     location: 'Wzgórze Zamkowe',
@@ -73,7 +72,6 @@ export const attractions: Attraction[] = [
   {
     id: '2',
     title: 'Brama Krakowska',
-    image: require('../../assets/wioslarz.jpeg'),
     description:
       'Gotycka brama miejska z XIV wieku, symbol Lublina. Stanowi główne wejście na Stare Miasto i mieści Muzeum Historii Miasta Lublina.',
     location: 'Stare Miasto',
@@ -93,7 +91,6 @@ export const attractions: Attraction[] = [
   {
     id: '3',
     title: 'Katedra Lubelska',
-    image: require('../../assets/sluza.jpeg'),
     description:
       'Barokowa katedra z XVI wieku, jedna z najwspanialszych świątyń w Polsce. Słynie z unikatowych fresków Józefa Meyera.',
     location: 'Plac Katedralny',
@@ -115,7 +112,6 @@ export const attractions: Attraction[] = [
   {
     id: '4',
     title: 'Stare Miasto',
-    image: require('../../assets/poczta.jpeg'),
     description:
       'Malownicze uliczki i kamienice z XV-XVIII wieku. Serce historycznego Lublina z licznymi kawiarniami, galeriami i rzemieślniczymi warsztatami.',
     location: 'Stare Miasto',
@@ -137,7 +133,6 @@ export const attractions: Attraction[] = [
   {
     id: '5',
     title: 'Plac Litewski',
-    image: require('../../assets/cisnienie.jpeg'),
     description:
       'Największy plac w centrum Lublina z multimedialnymi fontannami. Miejsce upamiętniające Unię Lubelską z 1569 roku.',
     location: 'Śródmieście',
@@ -159,7 +154,6 @@ export const attractions: Attraction[] = [
   {
     id: '6',
     title: 'Kościół Dominikanów',
-    image: require('../../assets/kosciol.jpeg'),
     description:
       'Gotycko-renesansowy kościół z XIV wieku z bogatym barokowym wnętrzem. Jedna z najstarszych świątyń w Lublinie.',
     location: 'Stare Miasto',
@@ -180,7 +174,6 @@ export const attractions: Attraction[] = [
   {
     id: '7',
     title: 'Trybunał Koronny',
-    image: require('../../assets/ratusz.jpeg'),
     description:
       'Renesansowy budynek na Rynku Starego Miasta, dawna siedziba Trybunału Koronnego Małopolski. Obecnie muzeum.',
     location: 'Rynek Starego Miasta',
@@ -201,7 +194,6 @@ export const attractions: Attraction[] = [
   {
     id: '8',
     title: 'Brama Grodzka',
-    image: require('../../assets/garnizon.jpeg'),
     description:
       'Historyczna brama na granicy chrześcijańskiego i żydowskiego Lublina. Obecnie ośrodek kulturalny "Grodzka Gate – NN Theatre".',
     location: 'Stare Miasto',
@@ -222,7 +214,6 @@ export const attractions: Attraction[] = [
   {
     id: '9',
     title: 'Pomnik Unii Lubelskiej',
-    image: require('../../assets/fontanna.jpeg'),
     description:
       'Obelisk upamiętniający podpisanie Unii Lubelskiej w 1569 roku. Jeden z najstarszych pomników w Polsce.',
     location: 'Plac Litewski',
@@ -242,7 +233,6 @@ export const attractions: Attraction[] = [
   {
     id: '10',
     title: 'Centrum Spotkania Kultur',
-    image: require('../../assets/hala.jpeg'),
     description:
       'Nowoczesna instytucja kultury w sercu Lublina. Mieści teatr, sale koncertowe, galerie sztuki i taras widokowy.',
     location: 'Śródmieście',

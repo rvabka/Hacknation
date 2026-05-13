@@ -204,6 +204,93 @@ async function fetchWiki(title, lang = 'pl') {
   }
 }
 
+// === Gemini – wzbogacanie opisów i ciekawostek ===
+const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
+const GEMINI_URL =
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+
+async function fetchGeminiEnrichment(name, category, tags, wikiExtract, retries = 2) {
+  if (!GEMINI_API_KEY) return null;
+
+  const street = tags['addr:street'] || tags['addr:place'];
+  const year = tags.start_date || tags['building:start_date'];
+  const architect = tags.architect;
+
+  const context = [
+    `Atrakcja: ${name}`,
+    `Kategoria: ${category}`,
+    `Miasto: Lublin`,
+    street && `Ulica: ${street}`,
+    year && `Rok: ${year}`,
+    architect && `Architekt: ${architect}`,
+    wikiExtract && `Z Wikipedii: ${wikiExtract.slice(0, 500)}`
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const prompt = `Jesteś przewodnikiem turystycznym po Lublinie. Na podstawie poniższych danych przygotuj treść dla turysty.
+
+${context}
+
+Wymagania:
+- "description": 2-3 zdania, ciekawe i konkretne, ton zachęcający, max 350 znaków
+- "funFacts": tablica 3 ciekawostek (po 1-2 zdania każda), unikalne fakty historyczne/kulturowe/architektoniczne, NIE powtarzaj opisu. Jeśli brak konkretów – wykorzystaj kontekst typu/kategorii i pisz wiarygodnie. Nie wymyślaj fałszywych faktów (dat, nazwisk).
+- Odpowiedź WYŁĄCZNIE jako prawidłowy JSON, bez markdown/code fences.
+
+Przykład formatu:
+{"description":"...","funFacts":["...","...","..."]}`;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.8,
+            maxOutputTokens: 600,
+            responseMimeType: 'application/json'
+          }
+        })
+      });
+
+      if (res.status === 429) {
+        // rate limit – backoff i retry
+        if (attempt < retries) {
+          const wait = 8000 * (attempt + 1);
+          console.warn(`[gemini] 429, czekam ${wait}ms (próba ${attempt + 1}/${retries})`);
+          await sleep(wait);
+          continue;
+        }
+        return null;
+      }
+
+      if (!res.ok) return null;
+      const data = await res.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) return null;
+
+      const parsed = JSON.parse(text);
+      if (!parsed?.description || !Array.isArray(parsed?.funFacts)) return null;
+      return {
+        description: String(parsed.description).trim().slice(0, 600),
+        funFacts: parsed.funFacts
+          .filter(f => typeof f === 'string' && f.trim().length > 15)
+          .map(f => f.trim().slice(0, 250))
+          .slice(0, 5)
+      };
+    } catch (e) {
+      if (attempt < retries) {
+        await sleep(3000);
+        continue;
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
 // === Google Places API – główne źródło zdjęć ===
 const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY ?? '';
 const GOOGLE_FIND_PLACE_URL =
@@ -351,6 +438,8 @@ async function main() {
   const allFacts = [];
 
   let processed = 0;
+  let geminiSuccess = 0;
+  let geminiFailed = 0;
 
   for (const el of elements) {
     processed++;
@@ -373,7 +462,9 @@ async function main() {
     const google = await fetchGooglePlace(name, lat, lon);
     await sleep(40);
 
-    // 2. Wikipedia – dla opisu (whitelist → tag → exact → fuzzy z weryfikacją "Lublin")
+    // 2. Wikipedia – dla opisu. STRICT: tytuł musi zawierać "lublin" LUB
+    // nazwa OSM musi być częścią tytułu Wiki (eliminuje "Aligator" → artykuł
+    // o aligatorach-zwierzętach, "Dłoń" → anatomia, itp.)
     let wiki = null;
     const whitelistTitle = FAMOUS_LANDMARKS_WIKI[normName(name)];
     if (whitelistTitle) wiki = await fetchWiki(whitelistTitle, 'pl');
@@ -385,13 +476,19 @@ async function main() {
     if (!wiki) wiki = await fetchWikiBySearch(name);
     await sleep(50);
 
-    // 3. Opis: Wiki preferowane, inaczej syntetyczny
-    let description = (wiki?.extract ?? '').trim().slice(0, 600);
-    if (description.length < 50) {
-      description = generateSyntheticDescription(name, tags);
+    // Walidacja: tytuł Wiki musi wskazywać że to obiekt z Lublina
+    if (wiki) {
+      const wt = normName(wiki.title ?? '');
+      const on = normName(name);
+      const titleMatchesLublin = wt.includes('lublin');
+      const titleMatchesOSMName = wt.length > 3 && (wt.includes(on) || on.includes(wt));
+      const fromExplicitTag = !!tags.wikipedia || !!whitelistTitle;
+      if (!titleMatchesLublin && !titleMatchesOSMName && !fromExplicitTag) {
+        wiki = null; // fuzzy false positive
+      }
     }
 
-    // 4. Zdjęcie: Google → OSM image → Wikidata → Wiki
+    // 3. Zdjęcie: Google → OSM image → Wikidata → Wiki
     let imageUrl = null;
     const googlePhotoRef = google?.photos?.[0]?.photo_reference;
     if (googlePhotoRef) {
@@ -400,14 +497,39 @@ async function main() {
     if (!imageUrl) {
       imageUrl = await resolveImageUrl(tags, wiki);
     }
-    if (!imageUrl) continue; // bez zdjęcia – pomijamy
+    if (!imageUrl) continue; // bez zdjęcia – pomijamy (też skraca koszty Gemini)
 
-    // 5. Deduplikacja po Google place_id (kilka OSM elementów może mapować na to samo)
+    // 4. Deduplikacja po Google place_id (kilka OSM elementów może mapować na to samo)
     if (google?.place_id) {
       if (seenTitles.has(`gpid:${google.place_id}`)) continue;
       seenTitles.add(`gpid:${google.place_id}`);
     }
     seenTitles.add(name.toLowerCase());
+
+    const category = mapCategory(tags);
+
+    // 5. Opis + ciekawostki: Gemini (z kontekstem Wiki/tagów) → fallback syntetyczny
+    let description = '';
+    let geminiFunFacts = [];
+    const enrichment = await fetchGeminiEnrichment(
+      name,
+      category,
+      tags,
+      wiki?.extract
+    );
+    await sleep(6500); // rate limit Gemini free tier: 10 req/min
+
+    if (enrichment) {
+      description = enrichment.description;
+      geminiFunFacts = enrichment.funFacts;
+      geminiSuccess++;
+    } else {
+      description = (wiki?.extract ?? '').trim().slice(0, 600);
+      if (description.length < 50) {
+        description = generateSyntheticDescription(name, tags);
+      }
+      geminiFailed++;
+    }
 
     const id = `${el.type}/${el.id}`;
     const wikipediaUrl =
@@ -425,7 +547,7 @@ async function main() {
       location: tags['addr:street'] || tags['addr:place'] || 'Lublin',
       latitude: lat,
       longitude: lon,
-      category: mapCategory(tags),
+      category,
       year_built: tags.start_date || tags['building:start_date'] || null,
       architect: tags.architect || null,
       opening_hours: tags.opening_hours || null,
@@ -439,9 +561,12 @@ async function main() {
       source_id: String(el.id)
     });
 
-    // Ciekawostki – pierwsze 2-3 zdania z opisu jako fakty (proste podejście)
-    const sentences = description.split(/(?<=[.!?])\s+/).filter(s => s.length > 30);
-    sentences.slice(0, 3).forEach((sentence, i) => {
+    // Ciekawostki – preferuj Gemini, fallback na podział opisu po zdaniach
+    const factsSource =
+      geminiFunFacts.length > 0
+        ? geminiFunFacts
+        : description.split(/(?<=[.!?])\s+/).filter(s => s.length > 30).slice(0, 3);
+    factsSource.forEach((sentence, i) => {
       allFacts.push({
         attraction_id: id,
         content: sentence.trim(),
@@ -495,8 +620,10 @@ async function main() {
   }
 
   console.log('[seed] ✓ Gotowe');
-  console.log(`  attractions: ${rows.length}`);
-  console.log(`  fun_facts:   ${allFacts.length}`);
+  console.log(`  attractions:    ${rows.length}`);
+  console.log(`  fun_facts:      ${allFacts.length}`);
+  console.log(`  gemini success: ${geminiSuccess}`);
+  console.log(`  gemini failed:  ${geminiFailed}`);
 }
 
 main().catch((e) => {

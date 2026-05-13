@@ -31,7 +31,7 @@ const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
 
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 const GEMINI_API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 interface PlannedAttraction extends Attraction {
   estimatedTime: number;
