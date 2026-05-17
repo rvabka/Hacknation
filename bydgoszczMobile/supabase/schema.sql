@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS attractions (
   opening_hours TEXT,
   price         TEXT,
   image_url     TEXT,
+  image_urls    TEXT[]      DEFAULT '{}',
   wikipedia_url TEXT,
   has_ar        BOOLEAN     DEFAULT false,
   has_audio     BOOLEAN     DEFAULT false,
@@ -26,6 +27,9 @@ CREATE TABLE IF NOT EXISTS attractions (
   source_id     TEXT,
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Bezpieczne dodanie kolumny image_urls dla istniejących instalacji
+ALTER TABLE attractions ADD COLUMN IF NOT EXISTS image_urls TEXT[] DEFAULT '{}';
 
 CREATE INDEX IF NOT EXISTS idx_attractions_category ON attractions (category);
 

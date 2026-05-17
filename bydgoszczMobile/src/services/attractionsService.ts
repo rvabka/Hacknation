@@ -19,6 +19,7 @@ interface DbAttractionRow {
   opening_hours: string | null;
   price: string | null;
   image_url: string | null;
+  image_urls: string[] | null;
   wikipedia_url: string | null;
   has_ar: boolean;
   has_audio: boolean;
@@ -50,6 +51,12 @@ function rowToAttraction(row: DbAttractionRow): Attraction {
     .sort((a, b) => a.order_idx - b.order_idx)
     .map(f => f.content);
 
+  const images = Array.isArray(row.image_urls) && row.image_urls.length > 0
+    ? row.image_urls
+    : row.image_url
+      ? [row.image_url]
+      : [];
+
   return {
     id: row.id,
     title: row.title,
@@ -57,6 +64,7 @@ function rowToAttraction(row: DbAttractionRow): Attraction {
     location: row.location ?? 'Lublin',
     coordinate: { latitude: row.latitude, longitude: row.longitude },
     image,
+    images,
     category,
     yearBuilt: row.year_built ?? undefined,
     architect: row.architect ?? undefined,

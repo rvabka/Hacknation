@@ -34,8 +34,80 @@ const LUBLIN_COORDS: Region = {
   longitudeDelta: 0.03
 };
 
-const CLUSTER_ZOOM_THRESHOLD = 0.025;
 const SELECTED_ZOOM = 0.008;
+
+// Poniżej tej wartości latitudeDelta nie klastrowymy – każdy marker indywidualnie.
+// 0.012° ≈ ~1.3km widoku. Klastrowanie tylko gdy widać duży obszar Lublina;
+// po jednym przybliżeniu od domyślnego widoku (0.03) wpadamy poniżej progu
+// i wszystkie markery są widoczne pojedynczo.
+const INDIVIDUAL_ZOOM_THRESHOLD = 0.012;
+
+interface Cluster {
+  id: string;
+  coordinate: { latitude: number; longitude: number };
+  count: number;
+  items: { id: string; coordinate: { latitude: number; longitude: number }; category: string; model?: any }[];
+  hasAR: boolean;
+}
+
+// Klastrowanie siatkowe: dzielimy widoczny obszar mapy na komórki proporcjonalne
+// do aktualnego poziomu zoomu. Każdy marker trafia do swojej komórki; komórki
+// z >1 markerem renderowane są jako klaster z liczbą.
+function buildClusters(
+  items: Cluster['items'],
+  latitudeDelta: number
+): Cluster[] {
+  if (latitudeDelta < INDIVIDUAL_ZOOM_THRESHOLD) {
+    return items.map(it => ({
+      id: it.id,
+      coordinate: it.coordinate,
+      count: 1,
+      items: [it],
+      hasAR: !!it.model
+    }));
+  }
+
+  const cellSize = latitudeDelta / 5;
+  const grid = new Map<string, Cluster>();
+
+  for (const it of items) {
+    const cellLat = Math.floor(it.coordinate.latitude / cellSize);
+    const cellLng = Math.floor(it.coordinate.longitude / cellSize);
+    const key = `${cellLat}_${cellLng}`;
+
+    let c = grid.get(key);
+    if (!c) {
+      c = {
+        id: `cluster_${key}`,
+        coordinate: { latitude: 0, longitude: 0 },
+        count: 0,
+        items: [],
+        hasAR: false
+      };
+      grid.set(key, c);
+    }
+
+    // Średnia ważona (krocząca) położenia – cluster pin pokazuje się w środku
+    // ciężkości grupy.
+    c.coordinate = {
+      latitude:
+        (c.coordinate.latitude * c.count + it.coordinate.latitude) /
+        (c.count + 1),
+      longitude:
+        (c.coordinate.longitude * c.count + it.coordinate.longitude) /
+        (c.count + 1)
+    };
+    c.count++;
+    c.items.push(it);
+    if (it.model) c.hasAR = true;
+  }
+
+  // Klastrom z count===1 nadajemy id atrakcji – pozwala podpiąć pod istniejące
+  // selektory i animacje pojedynczego markera.
+  return Array.from(grid.values()).map(c =>
+    c.count === 1 ? { ...c, id: c.items[0].id } : c
+  );
+}
 
 const isAndroid = Platform.OS === 'android';
 
@@ -154,21 +226,10 @@ export default function MapScreen() {
     [selectedId, attractions]
   );
 
-  const showIndividualMarkers = region.latitudeDelta < CLUSTER_ZOOM_THRESHOLD;
-
-  const clusterCenter = useMemo(() => {
-    if (attractions.length === 0) {
-      return { latitude: LUBLIN_COORDS.latitude, longitude: LUBLIN_COORDS.longitude };
-    }
-    return {
-      latitude:
-        attractions.reduce((sum, a) => sum + a.coordinate.latitude, 0) /
-        attractions.length,
-      longitude:
-        attractions.reduce((sum, a) => sum + a.coordinate.longitude, 0) /
-        attractions.length
-    };
-  }, [attractions]);
+  const clusters = useMemo(
+    () => buildClusters(attractions, region.latitudeDelta),
+    [attractions, region.latitudeDelta]
+  );
 
   const getCategoryIcon = useCallback(
     (category: string) =>
@@ -226,12 +287,16 @@ export default function MapScreen() {
         return;
       }
 
+      // Nie wymuszaj zmiany zoomu jeśli użytkownik jest już blisko –
+      // jedynie pan na marker (z lekkim zoom-in jeśli za daleko).
+      const targetDelta = Math.min(region.latitudeDelta, SELECTED_ZOOM);
+
       mapRef.current?.animateToRegion(
         {
           latitude: attraction.coordinate.latitude,
           longitude: attraction.coordinate.longitude,
-          latitudeDelta: SELECTED_ZOOM,
-          longitudeDelta: SELECTED_ZOOM
+          latitudeDelta: targetDelta,
+          longitudeDelta: targetDelta
         },
         300
       );
@@ -239,20 +304,40 @@ export default function MapScreen() {
       setSelectedId(id);
       animateCard(true);
     },
-    [selectedId, animateCard, attractions]
+    [selectedId, animateCard, attractions, region.latitudeDelta]
   );
 
-  const handleClusterPress = useCallback(() => {
-    mapRef.current?.animateToRegion(
-      {
-        latitude: clusterCenter.latitude,
-        longitude: clusterCenter.longitude,
-        latitudeDelta: CLUSTER_ZOOM_THRESHOLD - 0.008,
-        longitudeDelta: CLUSTER_ZOOM_THRESHOLD - 0.008
-      },
-      350
-    );
-  }, [clusterCenter]);
+  const handleClusterPress = useCallback(
+    (cluster: Cluster) => {
+      // Zoom DO BBOX zawartości klastra – nie do stałego "kolejnego poziomu".
+      // Dzięki temu 1 klik dramatycznie przybliża obszar klastra zamiast
+      // wymagać 3-4 kliknięć żeby dojść do pojedynczych markerów.
+      const lats = cluster.items.map(it => it.coordinate.latitude);
+      const lngs = cluster.items.map(it => it.coordinate.longitude);
+      const minLat = Math.min(...lats);
+      const maxLat = Math.max(...lats);
+      const minLng = Math.min(...lngs);
+      const maxLng = Math.max(...lngs);
+
+      // Rozmiar bbox + 40% paddingu na widoczność markerów przy krawędziach.
+      const rawSpan = Math.max(maxLat - minLat, maxLng - minLng);
+      const fitDelta = Math.max(rawSpan * 1.4, INDIVIDUAL_ZOOM_THRESHOLD / 2);
+      // Zabezpieczenie: zawsze co najmniej 1.8× zoom-in (żeby było widać efekt).
+      const maxAllowed = region.latitudeDelta / 1.8;
+      const finalDelta = Math.min(fitDelta, maxAllowed);
+
+      mapRef.current?.animateToRegion(
+        {
+          latitude: (minLat + maxLat) / 2,
+          longitude: (minLng + maxLng) / 2,
+          latitudeDelta: finalDelta,
+          longitudeDelta: finalDelta
+        },
+        350
+      );
+    },
+    [region.latitudeDelta]
+  );
 
   const handleCloseCard = useCallback(() => {
     animateCard(false, () => setSelectedId(null));
@@ -316,84 +401,74 @@ export default function MapScreen() {
   };
 
   const renderIOSMarkers = useCallback(() => {
-    if (showIndividualMarkers) {
-      return attractions.map(attraction => (
+    return clusters.map(cluster => {
+      if (cluster.count === 1) {
+        const it = cluster.items[0];
+        return (
+          <Marker
+            key={`ios-${cluster.id}`}
+            identifier={cluster.id}
+            coordinate={cluster.coordinate}
+            onPress={() => handleMarkerPress(cluster.id)}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+            stopPropagation
+          >
+            <IOSMarker category={it.category} hasModel={!!it.model} />
+          </Marker>
+        );
+      }
+
+      return (
         <Marker
-          key={`ios-${attraction.id}`}
-          identifier={attraction.id}
-          coordinate={attraction.coordinate}
-          onPress={() => handleMarkerPress(attraction.id)}
+          key={`ios-${cluster.id}`}
+          coordinate={cluster.coordinate}
+          onPress={() => handleClusterPress(cluster)}
           anchor={{ x: 0.5, y: 0.5 }}
           tracksViewChanges={false}
           stopPropagation
         >
-          <IOSMarker
-            category={attraction.category}
-            hasModel={!!attraction.model}
-          />
+          <IOSClusterMarker count={cluster.count} />
         </Marker>
-      ));
-    }
-
-    return (
-      <Marker
-        key="ios-cluster"
-        coordinate={clusterCenter}
-        onPress={handleClusterPress}
-        anchor={{ x: 0.5, y: 0.5 }}
-        tracksViewChanges={false}
-        stopPropagation
-      >
-        <IOSClusterMarker count={attractions.length} />
-      </Marker>
-    );
-  }, [
-    showIndividualMarkers,
-    handleMarkerPress,
-    handleClusterPress,
-    clusterCenter,
-    attractions
-  ]);
+      );
+    });
+  }, [clusters, handleMarkerPress, handleClusterPress]);
 
   const renderAndroidMarkers = useCallback(() => {
     if (!mapReady) return null;
 
-    if (showIndividualMarkers) {
-      return attractions.map(attraction => {
-        const color = getCategoryColor(attraction.category);
-        const hasModel = !!attraction.model;
-
+    return clusters.map(cluster => {
+      if (cluster.count === 1) {
+        const it = cluster.items[0];
         return (
           <Marker
-            key={`android-${attraction.id}`}
-            identifier={attraction.id}
-            coordinate={attraction.coordinate}
-            onPress={() => handleMarkerPress(attraction.id)}
-            pinColor={hasModel ? '#4ADE80' : color}
+            key={`android-${cluster.id}`}
+            identifier={cluster.id}
+            coordinate={cluster.coordinate}
+            onPress={() => handleMarkerPress(cluster.id)}
+            pinColor={it.model ? '#4ADE80' : getCategoryColor(it.category)}
             tracksViewChanges={false}
           />
         );
-      });
-    }
+      }
 
-    return (
-      <Marker
-        key="android-cluster"
-        coordinate={clusterCenter}
-        onPress={handleClusterPress}
-        pinColor="#4ADE80"
-        title={`${attractions.length} miejsc`}
-        tracksViewChanges={false}
-      />
-    );
+      return (
+        <Marker
+          key={`android-${cluster.id}`}
+          coordinate={cluster.coordinate}
+          onPress={() => handleClusterPress(cluster)}
+          pinColor="#4ADE80"
+          title={`${cluster.count} miejsc`}
+          tracksViewChanges={false}
+        />
+      );
+    });
   }, [
     mapReady,
-    showIndividualMarkers,
+    clusters,
     handleMarkerPress,
     handleClusterPress,
-    clusterCenter,
-    getCategoryColor,
-    attractions
+    getCategoryColor
   ]);
 
   return (
@@ -434,7 +509,7 @@ export default function MapScreen() {
         </TouchableOpacity>
       </View>
 
-      {!showIndividualMarkers && !selectedId && (
+      {clusters.some(c => c.count > 1) && !selectedId && (
         <View style={[styles.zoomHint, { bottom: insets.bottom + 100 }]}>
           <Ionicons
             name="expand-outline"
@@ -442,7 +517,7 @@ export default function MapScreen() {
             color="rgba(255,255,255,0.8)"
           />
           <Text style={styles.zoomHintText}>
-            Przybliż mapę lub kliknij klaster
+            Kliknij w klaster aby zobaczyć więcej
           </Text>
         </View>
       )}

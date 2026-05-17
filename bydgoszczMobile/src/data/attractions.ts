@@ -7,6 +7,8 @@ export interface Attraction {
   location: string;
   coordinate: { latitude: number; longitude: number };
   image?: ImageSourcePropType;
+  /** Galeria zdjęć z Google Places – do horizontal scroll w Details */
+  images?: string[];
   category: CategoryType;
   yearBuilt?: string;
   architect?: string;

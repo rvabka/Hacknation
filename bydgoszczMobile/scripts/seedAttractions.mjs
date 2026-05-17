@@ -209,8 +209,13 @@ const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
 const GEMINI_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
-async function fetchGeminiEnrichment(name, category, tags, wikiExtract, retries = 2) {
-  if (!GEMINI_API_KEY) return null;
+// Circuit breaker: po 3 fail w rzędzie wyłączamy Gemini do końca seedu
+// (dzienny RPD już wyczerpany – nie ma sensu marnować 25s/retry).
+let geminiConsecutiveFails = 0;
+let geminiDisabled = false;
+
+async function fetchGeminiEnrichment(name, category, tags, wikiExtract, mode = 'full', retries = 2) {
+  if (!GEMINI_API_KEY || geminiDisabled) return null;
 
   const street = tags['addr:street'] || tags['addr:place'];
   const year = tags.start_date || tags['building:start_date'];
@@ -228,7 +233,9 @@ async function fetchGeminiEnrichment(name, category, tags, wikiExtract, retries 
     .filter(Boolean)
     .join('\n');
 
-  const prompt = `Jesteś przewodnikiem turystycznym po Lublinie. Na podstawie poniższych danych przygotuj treść dla turysty.
+  // Tryb facts_only: mamy już dobry opis z Wikipedii, prosimy tylko o ciekawostki.
+  // Tryb full: brak opisu, generujemy opis + ciekawostki.
+  const fullPrompt = `Jesteś przewodnikiem turystycznym po Lublinie. Na podstawie poniższych danych przygotuj treść dla turysty.
 
 ${context}
 
@@ -239,6 +246,20 @@ Wymagania:
 
 Przykład formatu:
 {"description":"...","funFacts":["...","...","..."]}`;
+
+  const factsOnlyPrompt = `Jesteś przewodnikiem turystycznym po Lublinie. Na podstawie poniższych danych przygotuj 3 ciekawostki dla turysty.
+
+${context}
+
+Wymagania:
+- "funFacts": tablica 3 ciekawostek (po 1-2 zdania każda), unikalne fakty historyczne/kulturowe/architektoniczne. Wybierz najbardziej intrygujące informacje z dostarczonego opisu Wikipedii i przedstaw je w sposób ciekawy dla turysty. Nie wymyślaj fałszywych faktów (dat, nazwisk).
+- "description": MUSI być pustym stringiem (mamy własny opis z Wikipedii).
+- Odpowiedź WYŁĄCZNIE jako prawidłowy JSON, bez markdown/code fences.
+
+Format:
+{"description":"","funFacts":["...","...","..."]}`;
+
+  const prompt = mode === 'facts_only' ? factsOnlyPrompt : fullPrompt;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -256,25 +277,45 @@ Przykład formatu:
       });
 
       if (res.status === 429) {
-        // rate limit – backoff i retry
         if (attempt < retries) {
           const wait = 8000 * (attempt + 1);
           console.warn(`[gemini] 429, czekam ${wait}ms (próba ${attempt + 1}/${retries})`);
           await sleep(wait);
           continue;
         }
+        geminiConsecutiveFails++;
+        if (geminiConsecutiveFails >= 3) {
+          geminiDisabled = true;
+          console.warn('[gemini] 3 fail w rzędzie – wyłączam do końca seedu (RPD wyczerpany)');
+        }
         return null;
       }
 
-      if (!res.ok) return null;
+      if (!res.ok) {
+        geminiConsecutiveFails++;
+        if (geminiConsecutiveFails >= 3) geminiDisabled = true;
+        return null;
+      }
       const data = await res.json();
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) return null;
+      if (!text) {
+        geminiConsecutiveFails++;
+        return null;
+      }
 
       const parsed = JSON.parse(text);
-      if (!parsed?.description || !Array.isArray(parsed?.funFacts)) return null;
+      if (!Array.isArray(parsed?.funFacts)) {
+        geminiConsecutiveFails++;
+        return null;
+      }
+      const desc = String(parsed.description ?? '').trim();
+      if (mode === 'full' && desc.length < 20) {
+        geminiConsecutiveFails++;
+        return null;
+      }
+      geminiConsecutiveFails = 0; // sukces – resetujemy licznik
       return {
-        description: String(parsed.description).trim().slice(0, 600),
+        description: desc.slice(0, 600),
         funFacts: parsed.funFacts
           .filter(f => typeof f === 'string' && f.trim().length > 15)
           .map(f => f.trim().slice(0, 250))
@@ -285,6 +326,7 @@ Przykład formatu:
         await sleep(3000);
         continue;
       }
+      geminiConsecutiveFails++;
       return null;
     }
   }
@@ -296,6 +338,96 @@ const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY ?? '';
 const GOOGLE_FIND_PLACE_URL =
   'https://maps.googleapis.com/maps/api/place/findplacefromtext/json';
 const GOOGLE_PHOTO_URL = 'https://maps.googleapis.com/maps/api/place/photo';
+
+// Typy Google które wykluczają miejsce z listy atrakcji turystycznych.
+// Stacja paliw, restauracja, sklep itp. – chyba że jednocześnie ma typ turystyczny.
+const COMMERCIAL_TYPES = new Set([
+  'gas_station',
+  'convenience_store',
+  'supermarket',
+  'grocery_or_supermarket',
+  'restaurant',
+  'cafe',
+  'bar',
+  'meal_takeaway',
+  'meal_delivery',
+  'bakery',
+  'food',
+  'clothing_store',
+  'shoe_store',
+  'department_store',
+  'electronics_store',
+  'furniture_store',
+  'hardware_store',
+  'home_goods_store',
+  'jewelry_store',
+  'book_store',
+  'bicycle_store',
+  'pet_store',
+  'liquor_store',
+  'shopping_mall',
+  'store',
+  'lodging',
+  'bank',
+  'atm',
+  'finance',
+  'insurance_agency',
+  'real_estate_agency',
+  'gym',
+  'beauty_salon',
+  'hair_care',
+  'spa',
+  'doctor',
+  'dentist',
+  'pharmacy',
+  'veterinary_care',
+  'physiotherapist',
+  'transit_station',
+  'bus_station',
+  'subway_station',
+  'taxi_stand',
+  'parking',
+  'car_rental',
+  'car_repair',
+  'car_dealer',
+  'car_wash',
+  'laundry',
+  'post_office'
+]);
+
+// Typy które JEDNOZNACZNIE wskazują na atrakcję turystyczną.
+// Obecność któregokolwiek "ratuje" miejsce nawet jeśli ma też tag commercial.
+const TOURIST_TYPES = new Set([
+  'tourist_attraction',
+  'museum',
+  'art_gallery',
+  'church',
+  'place_of_worship',
+  'hindu_temple',
+  'mosque',
+  'synagogue',
+  'cemetery',
+  'amusement_park',
+  'aquarium',
+  'zoo',
+  'park',
+  'natural_feature',
+  'campground',
+  'stadium',
+  'library',
+  'university',
+  'city_hall',
+  'embassy',
+  'courthouse',
+  'landmark'
+]);
+
+function isCommercialOnly(types) {
+  if (!Array.isArray(types) || types.length === 0) return false;
+  const hasTourist = types.some(t => TOURIST_TYPES.has(t));
+  if (hasTourist) return false;
+  return types.some(t => COMMERCIAL_TYPES.has(t));
+}
 
 // Dystans w metrach (Haversine)
 function haversineMeters(lat1, lon1, lat2, lon2) {
@@ -462,6 +594,12 @@ async function main() {
     const google = await fetchGooglePlace(name, lat, lon);
     await sleep(40);
 
+    // Odrzuć miejsca komercyjne (stacje paliw, restauracje, sklepy) chyba że
+    // jednocześnie są oznaczone jako atrakcja turystyczna/muzeum/zabytek.
+    if (google && isCommercialOnly(google.types)) {
+      continue;
+    }
+
     // 2. Wikipedia – dla opisu. STRICT: tytuł musi zawierać "lublin" LUB
     // nazwa OSM musi być częścią tytułu Wiki (eliminuje "Aligator" → artykuł
     // o aligatorach-zwierzętach, "Dłoń" → anatomia, itp.)
@@ -476,28 +614,39 @@ async function main() {
     if (!wiki) wiki = await fetchWikiBySearch(name);
     await sleep(50);
 
-    // Walidacja: tytuł Wiki musi wskazywać że to obiekt z Lublina
+    // STRICT walidacja Wiki: artykuł MUSI być jednoznacznie o Lublinie.
+    // Akceptujemy tylko:
+    //  a) tytuł zawiera "lublin" (np. "Brama Krakowska w Lublinie"), LUB
+    //  b) OSM ma explicit tag `wikipedia`, LUB
+    //  c) atrakcja jest na whitelist znanych obiektów
+    // Sam wt === on NIE wystarcza – "Baobab" matchuje artykuł o drzewie
+    // afrykańskim, "Józef Bem" - generała polskiego (nie pomnik w Lublinie).
     if (wiki) {
       const wt = normName(wiki.title ?? '');
-      const on = normName(name);
       const titleMatchesLublin = wt.includes('lublin');
-      const titleMatchesOSMName = wt.length > 3 && (wt.includes(on) || on.includes(wt));
       const fromExplicitTag = !!tags.wikipedia || !!whitelistTitle;
-      if (!titleMatchesLublin && !titleMatchesOSMName && !fromExplicitTag) {
-        wiki = null; // fuzzy false positive
+      if (!titleMatchesLublin && !fromExplicitTag) {
+        wiki = null;
       }
     }
 
-    // 3. Zdjęcie: Google → OSM image → Wikidata → Wiki
+    // 3. Zdjęcie główne + galeria: Google → OSM image → Wikidata → Wiki
     let imageUrl = null;
-    const googlePhotoRef = google?.photos?.[0]?.photo_reference;
-    if (googlePhotoRef) {
-      imageUrl = buildGooglePhotoUrl(googlePhotoRef);
+    const imageUrls = [];
+
+    // Google daje zwykle 5-10 zdjęć per atrakcja – zachowujemy do 6 do galerii
+    if (Array.isArray(google?.photos)) {
+      for (const p of google.photos.slice(0, 6)) {
+        const url = buildGooglePhotoUrl(p.photo_reference);
+        if (url) imageUrls.push(url);
+      }
+      if (imageUrls.length > 0) imageUrl = imageUrls[0];
     }
     if (!imageUrl) {
       imageUrl = await resolveImageUrl(tags, wiki);
+      if (imageUrl) imageUrls.push(imageUrl);
     }
-    if (!imageUrl) continue; // bez zdjęcia – pomijamy (też skraca koszty Gemini)
+    if (!imageUrl) continue; // bez zdjęcia – pomijamy
 
     // 4. Deduplikacja po Google place_id (kilka OSM elementów może mapować na to samo)
     if (google?.place_id) {
@@ -508,23 +657,37 @@ async function main() {
 
     const category = mapCategory(tags);
 
-    // 5. Opis + ciekawostki: Gemini (z kontekstem Wiki/tagów) → fallback syntetyczny
+    // 5. Opis + ciekawostki
+    //    Strategia oszczędzania quoty Gemini (250 RPD free tier):
+    //    a) Atrakcja ma solidny Wiki extract (≥200 znaków, wspomina Lublin)
+    //       → Wiki jest wystarczające, Gemini generuje TYLKO ciekawostki
+    //    b) Brak dobrego Wiki → Gemini generuje opis + ciekawostki
     let description = '';
     let geminiFunFacts = [];
+
+    const wikiExtract = (wiki?.extract ?? '').trim();
+    const hasSolidWiki =
+      wikiExtract.length >= 200 &&
+      wikiExtract.toLowerCase().includes('lublin');
+
     const enrichment = await fetchGeminiEnrichment(
       name,
       category,
       tags,
-      wiki?.extract
+      wikiExtract,
+      hasSolidWiki ? 'facts_only' : 'full'
     );
-    await sleep(6500); // rate limit Gemini free tier: 10 req/min
+    // Sleep tylko jeśli Gemini wciąż żywe – inaczej szkoda czasu
+    if (!geminiDisabled) await sleep(6500);
 
     if (enrichment) {
-      description = enrichment.description;
+      description = hasSolidWiki
+        ? wikiExtract.slice(0, 600)
+        : enrichment.description;
       geminiFunFacts = enrichment.funFacts;
       geminiSuccess++;
     } else {
-      description = (wiki?.extract ?? '').trim().slice(0, 600);
+      description = wikiExtract.slice(0, 600);
       if (description.length < 50) {
         description = generateSyntheticDescription(name, tags);
       }
@@ -553,6 +716,7 @@ async function main() {
       opening_hours: tags.opening_hours || null,
       price: tags.fee === 'no' ? 'Wstęp bezpłatny' : null,
       image_url: imageUrl,
+      image_urls: imageUrls,
       wikipedia_url: wikipediaUrl,
       has_ar: false,
       has_audio: false,
