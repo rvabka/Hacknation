@@ -18,9 +18,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-const GEMINI_API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
+const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY;
+const GROQ_MODEL = process.env.EXPO_PUBLIC_GROQ_MODEL;
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 interface Message {
   id: string;
@@ -171,7 +171,7 @@ export default function GeminiChatModal({
     ]);
 
     try {
-      if (!GEMINI_API_KEY) throw new Error('Brak klucza API');
+      if (!GROQ_API_KEY || !GROQ_MODEL) throw new Error('Brak konfiguracji API');
 
       const systemPrompt = `Jesteś ekspertem i przewodnikiem turystycznym po Lublinie. Aktualnie opowiadasz o miejscu: "${attractionTitle}".
 Kontekst miejsca:
@@ -186,42 +186,27 @@ WAŻNE ZASADY:
 5. Możesz dodać ciekawostki związane z miejscem
 6. Jeśli nie znasz dokładnej odpowiedzi, powiedz co wiesz i zasugeruj gdzie można znaleźć więcej informacji`;
 
-      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+      const response = await fetch(GROQ_API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
-          contents: [
+          model: GROQ_MODEL,
+          messages: [
             {
-              parts: [
-                { text: systemPrompt },
-                { text: `Pytanie turysty: ${text}` }
-              ]
+              role: 'system',
+              content: systemPrompt
+            },
+            {
+              role: 'user',
+              content: `Pytanie turysty: ${text}`
             }
           ],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 400,
-            topP: 0.8,
-            topK: 40
-          },
-          safetySettings: [
-            {
-              category: 'HARM_CATEGORY_HARASSMENT',
-              threshold: 'BLOCK_MEDIUM_AND_ABOVE'
-            },
-            {
-              category: 'HARM_CATEGORY_HATE_SPEECH',
-              threshold: 'BLOCK_MEDIUM_AND_ABOVE'
-            },
-            {
-              category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-              threshold: 'BLOCK_MEDIUM_AND_ABOVE'
-            },
-            {
-              category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-              threshold: 'BLOCK_MEDIUM_AND_ABOVE'
-            }
-          ]
+          temperature: 0.7,
+          max_tokens: 400,
+          top_p: 0.8
         })
       });
 
@@ -229,11 +214,7 @@ WAŻNE ZASADY:
       if (!response.ok)
         throw new Error(data.error?.message || `HTTP ${response.status}`);
 
-      let aiResponse =
-        data.candidates?.[0]?.content?.parts?.[0]?.text ||
-        (data.promptFeedback?.blockReason
-          ? 'Przepraszam, nie mogę odpowiedzieć na to pytanie. Spróbuj zapytać o coś innego związanego z tym miejscem.'
-          : '');
+      const aiResponse = data.choices?.[0]?.message?.content;
       if (!aiResponse) throw new Error('Nieoczekiwana struktura odpowiedzi');
 
       setMessages(prev =>
@@ -243,7 +224,7 @@ WAŻNE ZASADY:
       );
     } catch (error: any) {
       let errorText = 'Wystąpił błąd. Spróbuj ponownie za chwilę.';
-      if (error.message?.includes('API key'))
+      if (error.message?.includes('konfiguracji'))
         errorText = 'Problem z konfiguracją. Sprawdź klucz API.';
       else if (error.message?.includes('quota'))
         errorText = 'Przekroczono limit zapytań. Spróbuj za chwilę.';
