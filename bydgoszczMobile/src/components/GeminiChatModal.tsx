@@ -523,7 +523,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     maxHeight: '85%'
   },
-  blurContainer: { paddingTop: 12 },
+  blurContainer: {
+    paddingTop: 12,
+    backgroundColor: '#101714'
+  },
   handle: {
     width: 40,
     height: 4,
