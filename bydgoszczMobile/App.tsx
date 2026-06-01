@@ -8,6 +8,7 @@ import { useFonts } from 'expo-font';
 import AppNavigator from './src/navigation/AppNavigator';
 import SplashScreen from './src/navigation/SplashScreen';
 import { TourProvider } from './src/context/TourContext';
+import { FavoritesProvider } from './src/context/FavoritesContext';
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
@@ -35,9 +36,11 @@ export default function App() {
     <SafeAreaProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <NavigationContainer>
-          <TourProvider>
-            <AppNavigator />
-          </TourProvider>
+          <FavoritesProvider>
+            <TourProvider>
+              <AppNavigator />
+            </TourProvider>
+          </FavoritesProvider>
           <StatusBar style="dark" />
         </NavigationContainer>
       </GestureHandlerRootView>

@@ -5,1132 +5,792 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Platform,
   Image,
   Animated,
   Dimensions,
   Easing,
-  StatusBar,
-  Linking
+  Linking,
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFonts } from 'expo-font';
+import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { DetailsScreenProps } from '../navigation/types';
-import AudioPlayerModal from '../components/AudioPlayer';
 import GeminiChatModal from '../components/GeminiChatModal';
-import ARViewModal from '../components/ARViewModal';
 import { useFavorites } from '../hooks/useFavorites';
 import { useAttractions } from '../hooks/useAttractions';
+import { useSpeech } from '../hooks/useSpeech';
+import { CATEGORY_COLORS } from '../data/attractions';
+import { colors, space, radii, type, shadow, hitSlop, font } from '../theme';
 
-const { width, height } = Dimensions.get('window');
-const GRADIENT_SIZE = Math.sqrt(width * width + height * height) * 1.5;
+const { width } = Dimensions.get('window');
 
-const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
+const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY;
+const GROQ_MODEL = process.env.EXPO_PUBLIC_GROQ_MODEL;
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
-export default function DetailsScreen({
-  route,
-  navigation
-}: DetailsScreenProps) {
+export default function DetailsScreen({ route, navigation }: DetailsScreenProps) {
   const { id, title, description, location } = route.params;
   const insets = useSafeAreaInsets();
 
   const { attractions } = useAttractions();
   const attraction = attractions.find(a => a.id === id);
-
   const { isFavorite, toggleFavorite } = useFavorites();
+  const { speak, stop } = useSpeech();
 
-  const [showAudioModal, setShowAudioModal] = useState(false);
-  const [showChatModal, setShowChatModal] = useState(false);
-  const [showARModal, setShowARModal] = useState(false);
-  const [expandedFunFacts, setExpandedFunFacts] = useState(false);
+  // Jedno źródło prawdy dla audio: czytany jest albo opis, albo opowieść AI.
+  const [activeAudio, setActiveAudio] = useState<'none' | 'opis' | 'story'>(
+    'none'
+  );
+  const [story, setStory] = useState<string | null>(null);
+  const [storyLoading, setStoryLoading] = useState(false);
+
+  const [showChat, setShowChat] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
 
-  // Galeria zdjęć (z Google Places). Jeśli mamy >1 zdjęć w bazie – carousel,
-  // inaczej fallback na pojedynczy attraction.image (np. lokalny asset).
-  const screenWidth = Dimensions.get('window').width;
-  const galleryUrls = attraction?.images ?? [];
-  const hasGallery = galleryUrls.length > 1;
+  const gallery = attraction?.images ?? [];
+  const hasGallery = gallery.length > 1;
+  const cat = attraction ? CATEGORY_COLORS[attraction.category] : colors.forest;
 
-  const [fontsLoaded] = useFonts({
-    Kollektif: require('../../assets/fonts/Kollektif.ttf'),
-    'Kollektif-Bold': require('../../assets/fonts/Kollektif-Bold.ttf')
-  });
-
-  const spinValue = useRef(new Animated.Value(0)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(50)).current;
-  const imageScale = useRef(new Animated.Value(1.1)).current;
+  const fade = useRef(new Animated.Value(0)).current;
+  const rise = useRef(new Animated.Value(18)).current;
 
   useEffect(() => {
-    Animated.loop(
-      Animated.timing(spinValue, {
-        toValue: 1,
-        duration: 15000,
-        easing: Easing.linear,
-        useNativeDriver: true
-      })
-    ).start();
-
     Animated.parallel([
-      Animated.timing(fadeAnim, {
+      Animated.timing(fade, {
         toValue: 1,
-        duration: 600,
+        duration: 420,
         useNativeDriver: true
       }),
-      Animated.timing(slideAnim, {
+      Animated.timing(rise, {
         toValue: 0,
-        duration: 500,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true
-      }),
-      Animated.timing(imageScale, {
-        toValue: 1,
-        duration: 800,
+        duration: 480,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true
       })
     ]).start();
-  }, []);
+  }, [fade, rise]);
 
-  const spin = spinValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg']
-  });
+  const speechText = [
+    title,
+    description,
+    attraction?.funFacts?.length
+      ? 'Ciekawostka. ' + attraction.funFacts[0].replace(/\*\*/g, '')
+      : ''
+  ]
+    .filter(Boolean)
+    .join('. ');
 
-  const openMaps = () => {
-    if (attraction?.coordinate) {
-      const url = Platform.select({
-        ios: `maps:0,0?q=${attraction.title}@${attraction.coordinate.latitude},${attraction.coordinate.longitude}`,
-        android: `geo:${attraction.coordinate.latitude},${attraction.coordinate.longitude}?q=${attraction.title}`
+  // Czyta dany tekst; ponowne stuknięcie tego samego źródła zatrzymuje lektora.
+  const narrate = (key: 'opis' | 'story', text: string) => {
+    if (activeAudio === key) {
+      stop();
+      setActiveAudio('none');
+      return;
+    }
+    setActiveAudio(key);
+    speak(text, { onDone: () => setActiveAudio('none') });
+  };
+
+  // Gawędziarz AI: generuje barwną, krótką opowieść o miejscu (Groq / model OpenAI).
+  const generateStory = async (): Promise<string | null> => {
+    if (!GROQ_API_KEY || !GROQ_MODEL) return null;
+    const facts2 = (attraction?.funFacts ?? [])
+      .map(f => f.replace(/\*\*/g, ''))
+      .join(' ');
+    const prompt = `Opowiedz wciągającą, krótką opowieść (legendę lub scenkę historyczną) o miejscu "${title}" w Lublinie, dzielnica ${location}.
+Kontekst: ${description} ${facts2}
+Zasady: 4-6 zdań, obrazowo i nastrojowo, zwracaj się do słuchacza ("wyobraź sobie..."), zacznij od mocnego haka, po polsku, bez myślników.`;
+    try {
+      const res = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          reasoning_effort: 'low',
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Jesteś barwnym gawędziarzem i przewodnikiem po Lublinie. Snujesz krótkie, sugestywne opowieści. Po polsku, bez myślników.'
+            },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.9,
+          max_tokens: 900
+        })
       });
-      if (url) Linking.openURL(url);
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content?.trim();
+      return text || null;
+    } catch {
+      return null;
     }
   };
 
-  const openNavigation = () => {
-    if (attraction?.coordinate) {
-      const url = Platform.select({
-        ios: `maps:0,0?daddr=${attraction.coordinate.latitude},${attraction.coordinate.longitude}`,
-        android: `google.navigation:q=${attraction.coordinate.latitude},${attraction.coordinate.longitude}`
-      });
-      if (url) Linking.openURL(url);
+  const tellStory = async () => {
+    if (activeAudio === 'story') {
+      stop();
+      setActiveAudio('none');
+      return;
     }
+    let text = story;
+    if (!text) {
+      setStoryLoading(true);
+      text = await generateStory();
+      setStoryLoading(false);
+      if (!text) return;
+      setStory(text);
+    }
+    narrate('story', text);
   };
 
-  if (!fontsLoaded) {
-    return null;
-  }
+  const openExternal = (mode: 'route' | 'pin') => {
+    if (!attraction?.coordinate) return;
+    const { latitude, longitude } = attraction.coordinate;
+    const url =
+      mode === 'route'
+        ? Platform.select({
+            ios: `maps:0,0?daddr=${latitude},${longitude}`,
+            android: `google.navigation:q=${latitude},${longitude}`
+          })
+        : Platform.select({
+            ios: `maps:0,0?q=${attraction.title}@${latitude},${longitude}`,
+            android: `geo:${latitude},${longitude}?q=${attraction.title}`
+          });
+    if (url) Linking.openURL(url);
+  };
 
-  const bottomPadding = 20 + insets.bottom;
+  const facts = attraction?.funFacts ?? [];
+  const shownFacts = expanded ? facts : facts.slice(0, 2);
 
   return (
-    <View style={styles.mainWrapper}>
-      <StatusBar barStyle="dark-content" />
-
-      <View style={styles.shimmerContainer}>
-        <AnimatedGradient
-          colors={[
-            '#efe8bd',
-            '#1B4D3E',
-            '#1B4D3E',
-            '#1B4D3E',
-            '#1B4D3E',
-            '#1B4D3E',
-            '#1B4D3E'
-          ]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={[styles.rotatingGradient, { transform: [{ rotate: spin }] }]}
-          pointerEvents="none"
-        />
-      </View>
-
+    <View style={styles.screen}>
+      <StatusBar style="light" />
       <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: bottomPadding }
-        ]}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: insets.bottom + space['3xl'] }}
       >
-        {attraction && (attraction.image || galleryUrls.length > 0) && (
-          <Animated.View
-            style={[
-              styles.heroImageContainer,
-              {
-                opacity: fadeAnim,
-                transform: [{ scale: imageScale }]
+        {/* HERO */}
+        <View style={styles.hero}>
+          {hasGallery ? (
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={e =>
+                setGalleryIndex(
+                  Math.round(e.nativeEvent.contentOffset.x / width)
+                )
               }
-            ]}
-          >
-            {hasGallery ? (
-              <>
-                <ScrollView
-                  horizontal
-                  pagingEnabled
-                  showsHorizontalScrollIndicator={false}
-                  onMomentumScrollEnd={e => {
-                    const idx = Math.round(
-                      e.nativeEvent.contentOffset.x / screenWidth
-                    );
-                    setGalleryIndex(idx);
-                  }}
-                >
-                  {galleryUrls.map((url, i) => (
-                    <Image
-                      key={i}
-                      source={{ uri: url }}
-                      style={[styles.heroImage, { width: screenWidth - 40 }]}
-                      resizeMode="cover"
-                    />
-                  ))}
-                </ScrollView>
-                <View style={styles.galleryDots} pointerEvents="none">
-                  {galleryUrls.map((_, i) => (
-                    <View
-                      key={i}
-                      style={[
-                        styles.galleryDot,
-                        i === galleryIndex && styles.galleryDotActive
-                      ]}
-                    />
-                  ))}
-                </View>
-                <View style={styles.galleryCounter} pointerEvents="none">
-                  <Ionicons name="images" size={12} color="#FFF" />
-                  <Text style={styles.galleryCounterText}>
-                    {galleryIndex + 1}/{galleryUrls.length}
-                  </Text>
-                </View>
-              </>
-            ) : (
-              <Image
-                source={
-                  attraction?.image ??
-                  (galleryUrls[0] ? { uri: galleryUrls[0] } : undefined)
-                }
-                style={styles.heroImage}
-                resizeMode="cover"
-              />
-            )}
-            <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.6)']}
-              style={styles.heroGradient}
-              pointerEvents="none"
+            >
+              {gallery.map((uri, i) => (
+                <Image
+                  key={i}
+                  source={{ uri }}
+                  style={{ width, height: 320 }}
+                  resizeMode="cover"
+                />
+              ))}
+            </ScrollView>
+          ) : (
+            <Image
+              source={
+                attraction?.image ??
+                (gallery[0] ? { uri: gallery[0] } : undefined)
+              }
+              style={{ width, height: 320 }}
+              resizeMode="cover"
             />
+          )}
 
-            {/* Feature badges on image */}
-            <View style={styles.heroBadges}>
-              {attraction.hasAR && (
-                <View style={[styles.heroBadge, styles.arBadge]}>
-                  <Ionicons name="cube-outline" size={14} color="#FFFFFF" />
-                  <Text style={styles.heroBadgeText}>AR</Text>
-                </View>
-              )}
-              {attraction.hasAudio && (
-                <View style={[styles.heroBadge, styles.audioBadge]}>
-                  <Ionicons name="headset-outline" size={14} color="#FFFFFF" />
-                  <Text style={styles.heroBadgeText}>Audio</Text>
-                </View>
-              )}
-              {attraction.hasAI && (
-                <View style={[styles.heroBadge, styles.aiBadgePill]}>
-                  <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                  <Text style={styles.heroBadgeText}>AI</Text>
-                </View>
-              )}
-            </View>
+          <LinearGradient
+            colors={['rgba(12,39,28,0.45)', 'transparent', 'rgba(12,39,28,0.55)']}
+            locations={[0, 0.4, 1]}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
 
-            <View style={styles.categoryBadgeHero}>
-              <Text style={styles.categoryBadgeText}>
-                {attraction.category}
-              </Text>
-            </View>
-
-            {attraction.yearBuilt && (
-              <View style={styles.yearBadgeHero}>
-                <Ionicons name="calendar-outline" size={12} color="#FFFFFF" />
-                <Text style={styles.yearBadgeText}>{attraction.yearBuilt}</Text>
-              </View>
-            )}
-
+          <View style={[styles.heroTop, { top: insets.top + space.sm }]}>
             <TouchableOpacity
-              style={styles.heroFavoriteButton}
+              style={styles.roundBtn}
+              onPress={() => navigation.goBack()}
+              hitSlop={hitSlop}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="chevron-back" size={22} color={colors.white} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.roundBtn}
               onPress={() => toggleFavorite(id)}
-              activeOpacity={0.8}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              hitSlop={hitSlop}
+              activeOpacity={0.85}
             >
               <Ionicons
                 name={isFavorite(id) ? 'heart' : 'heart-outline'}
                 size={20}
-                color={isFavorite(id) ? '#FF4D6D' : '#FFFFFF'}
+                color={isFavorite(id) ? colors.favorite : colors.white}
               />
             </TouchableOpacity>
-          </Animated.View>
-        )}
+          </View>
 
+          <View style={styles.heroBottom}>
+            <View style={[styles.catChip, { backgroundColor: cat }]}>
+              <Text style={styles.catChipText}>{attraction?.category}</Text>
+            </View>
+            {!!attraction?.yearBuilt && (
+              <View style={styles.yearChip}>
+                <Ionicons name="time-outline" size={12} color={colors.white} />
+                <Text style={styles.yearChipText}>{attraction.yearBuilt}</Text>
+              </View>
+            )}
+          </View>
+
+          {hasGallery && (
+            <View style={styles.dots} pointerEvents="none">
+              {gallery.map((_, i) => (
+                <View
+                  key={i}
+                  style={[styles.dot, i === galleryIndex && styles.dotActive]}
+                />
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* SHEET */}
         <Animated.View
           style={[
-            styles.contentCard,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }]
-            }
+            styles.sheet,
+            { opacity: fade, transform: [{ translateY: rise }] }
           ]}
         >
-          <View style={styles.mainSection}>
-            <Text style={styles.title}>{title}</Text>
-            <View style={styles.locationRow}>
-              <Ionicons name="location-sharp" size={18} color="#1B4D3E" />
-              <Text style={styles.locationText}>{location}, Lublin</Text>
-            </View>
+          <Text style={styles.title}>{title}</Text>
+          <View style={styles.locationRow}>
+            <Ionicons name="location" size={15} color={colors.forest} />
+            <Text style={styles.location}>{location}, Lublin</Text>
           </View>
 
-          <View style={styles.primaryActionsSection}>
-            {attraction?.hasAI && (
-              <TouchableOpacity
-                style={styles.aiPrimaryButton}
-                onPress={() => setShowChatModal(true)}
-                activeOpacity={0.9}
+          {/* Akcje */}
+          {attraction?.hasAI && (
+            <TouchableOpacity
+              style={styles.aiBtn}
+              onPress={() => setShowChat(true)}
+              activeOpacity={0.92}
+            >
+              <LinearGradient
+                colors={[colors.forest, colors.forestSoft]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.aiBtnInner}
               >
-                <LinearGradient
-                  colors={['#1B4D3E', '#2D6A4F']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.aiPrimaryGradient}
-                >
-                  <View style={styles.aiPrimaryIcon}>
-                    <Ionicons name="sparkles" size={24} color="#4ADE80" />
+                <View style={styles.aiIcon}>
+                  <Ionicons name="sparkles" size={20} color={colors.mint} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.aiTitle}>Zapytaj przewodnika AI</Text>
+                  <Text style={styles.aiSub}>
+                    Dopytaj o historię tego miejsca
+                  </Text>
+                </View>
+                <Ionicons
+                  name="arrow-forward"
+                  size={20}
+                  color={colors.mint}
+                />
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
+
+          <View style={styles.navRow}>
+            <TouchableOpacity
+              style={styles.navBtn}
+              onPress={() => openExternal('route')}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="navigate" size={18} color={colors.onForest} />
+              <Text style={styles.navBtnText}>Trasa</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.navBtn, styles.navBtnGhost]}
+              onPress={() => openExternal('pin')}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="map-outline" size={18} color={colors.forest} />
+              <Text style={[styles.navBtnText, styles.navBtnTextGhost]}>
+                Pokaż na mapie
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Gawędziarz AI */}
+          {attraction?.hasAI && (
+            <LinearGradient
+              colors={[colors.forest, colors.forestDeep]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.storyCard}
+            >
+              <View style={styles.storyHead}>
+                <View style={styles.storyIcon}>
+                  <Ionicons name="book" size={18} color={colors.mint} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.storyTitle}>Gawędziarz AI</Text>
+                  <Text style={styles.storySub}>
+                    Posłuchaj opowieści o tym miejscu
+                  </Text>
+                </View>
+                {activeAudio === 'story' && (
+                  <View style={styles.storyLive}>
+                    <Ionicons name="volume-high" size={13} color={colors.mint} />
+                    <Text style={styles.storyLiveText}>czyta</Text>
                   </View>
-                  <View style={styles.aiPrimaryTextContainer}>
-                    <Text style={styles.aiPrimaryTitle}>
-                      Zapytaj Przewodnika AI
-                    </Text>
-                    <Text style={styles.aiPrimarySubtitle}>
-                      Dowiedz się wszystkiego o tym miejscu
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={24} color="#4ADE80" />
-                </LinearGradient>
-              </TouchableOpacity>
-            )}
-
-            <View style={styles.navigationButtonsRow}>
-              <TouchableOpacity
-                style={styles.navigationButton}
-                onPress={openNavigation}
-                activeOpacity={0.8}
-              >
-                <View style={styles.navigationIconContainer}>
-                  <Ionicons name="navigate" size={24} color="#FFFFFF" />
-                </View>
-                <Text style={styles.navigationButtonText}>Nawiguj</Text>
-                <Text style={styles.navigationButtonSubtext}>
-                  Wyznacz trasę
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.mapButton}
-                onPress={openMaps}
-                activeOpacity={0.8}
-              >
-                <View style={styles.mapIconContainer}>
-                  <Ionicons name="map" size={24} color="#1B4D3E" />
-                </View>
-                <Text style={styles.mapButtonText}>Mapa</Text>
-                <Text style={styles.mapButtonSubtext}>Pokaż lokalizację</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.quickActionsSection}>
-            {attraction?.hasAR && (
-              <TouchableOpacity
-                style={styles.quickActionButton}
-                onPress={() => setShowARModal(true)}
-              >
-                <View
-                  style={[
-                    styles.quickActionIcon,
-                    { backgroundColor: '#8B5CF6' }
-                  ]}
-                >
-                  <Ionicons name="cube-outline" size={22} color="#FFFFFF" />
-                </View>
-                <Text style={styles.quickActionLabel}>AR View</Text>
-              </TouchableOpacity>
-            )}
-
-            {attraction?.hasAudio && (
-              <TouchableOpacity
-                style={styles.quickActionButton}
-                onPress={() => setShowAudioModal(true)}
-              >
-                <View
-                  style={[
-                    styles.quickActionIcon,
-                    { backgroundColor: '#4ADE80' }
-                  ]}
-                >
-                  <Ionicons name="headset" size={22} color="#FFFFFF" />
-                </View>
-                <Text style={styles.quickActionLabel}>Audio Guide</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.separator} />
-
-          <View style={styles.descriptionSection}>
-            <View style={styles.sectionHeader}>
-              <Ionicons
-                name="document-text-outline"
-                size={24}
-                color="#1B4D3E"
-              />
-              <Text style={styles.sectionTitle}>Opis</Text>
-            </View>
-            <Text style={styles.description}>{description}</Text>
-          </View>
-
-          {attraction?.funFacts && attraction.funFacts.length > 0 && (
-            <>
-              <View style={styles.separator} />
-              <View style={styles.funFactsSection}>
-                <View style={styles.sectionHeader}>
-                  <Ionicons name="bulb-outline" size={24} color="#F59E0B" />
-                  <Text style={styles.sectionTitle}>Ciekawostki</Text>
-                  <View style={styles.funFactsCount}>
-                    <Text style={styles.funFactsCountText}>
-                      {attraction.funFacts.length}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.funFactsList}>
-                  {(expandedFunFacts
-                    ? attraction.funFacts
-                    : attraction.funFacts.slice(0, 2)
-                  ).map((fact, index) => (
-                    <View key={index} style={styles.funFactItem}>
-                      <View style={styles.funFactNumber}>
-                        <Text style={styles.funFactNumberText}>
-                          {index + 1}
-                        </Text>
-                      </View>
-                      <Text style={styles.funFactText}>{fact}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                {attraction.funFacts.length > 2 && (
-                  <TouchableOpacity
-                    style={styles.expandButton}
-                    onPress={() => setExpandedFunFacts(!expandedFunFacts)}
-                  >
-                    <Text style={styles.expandButtonText}>
-                      {expandedFunFacts
-                        ? 'Pokaż mniej'
-                        : `Pokaż wszystkie (${attraction.funFacts.length})`}
-                    </Text>
-                    <Ionicons
-                      name={expandedFunFacts ? 'chevron-up' : 'chevron-down'}
-                      size={18}
-                      color="#1B4D3E"
-                    />
-                  </TouchableOpacity>
                 )}
               </View>
-            </>
-          )}
 
-          <View style={styles.separator} />
+              {!!story && <Text style={styles.storyText}>{story}</Text>}
 
-          <View style={styles.quickInfoSection}>
-            <Text style={styles.sectionTitle}>Informacje</Text>
-
-            <View style={styles.infoGrid}>
-              <View style={styles.infoCard}>
-                <View style={styles.infoIconContainer}>
-                  <Ionicons name="time-outline" size={24} color="#1B4D3E" />
-                </View>
-                <Text style={styles.infoLabel}>Godziny otwarcia</Text>
-                <Text style={styles.infoValue}>
-                  {attraction?.openingHours || 'Całodobowo'}
-                </Text>
-              </View>
-
-              <View style={styles.infoCard}>
-                <View style={styles.infoIconContainer}>
-                  <Ionicons name="cash-outline" size={24} color="#1B4D3E" />
-                </View>
-                <Text style={styles.infoLabel}>Wstęp</Text>
-                <Text style={styles.infoValue}>
-                  {attraction?.price || 'Darmowy'}
-                </Text>
-              </View>
-
-              <View style={styles.infoCard}>
-                <View style={styles.infoIconContainer}>
-                  <Ionicons name="camera-outline" size={24} color="#1B4D3E" />
-                </View>
-                <Text style={styles.infoLabel}>Zdjęcia</Text>
-                <Text style={styles.infoValue}>Dozwolone</Text>
-              </View>
-
-              <View style={styles.infoCard}>
-                <View style={styles.infoIconContainer}>
+              <TouchableOpacity
+                style={styles.storyBtn}
+                onPress={tellStory}
+                activeOpacity={0.9}
+                disabled={storyLoading}
+              >
+                {storyLoading ? (
+                  <ActivityIndicator size="small" color={colors.mintInk} />
+                ) : (
                   <Ionicons
-                    name="accessibility-outline"
-                    size={24}
-                    color="#1B4D3E"
+                    name={
+                      activeAudio === 'story'
+                        ? 'stop'
+                        : story
+                        ? 'refresh'
+                        : 'sparkles'
+                    }
+                    size={18}
+                    color={colors.mintInk}
                   />
-                </View>
-                <Text style={styles.infoLabel}>Dostępność</Text>
-                <Text style={styles.infoValue}>Pełna</Text>
-              </View>
-            </View>
-          </View>
-
-          {attraction?.architect && (
-            <>
-              <View style={styles.separator} />
-              <View style={styles.architectSection}>
-                <View style={styles.sectionHeader}>
-                  <Ionicons name="person-outline" size={24} color="#1B4D3E" />
-                  <Text style={styles.sectionTitle}>Twórca</Text>
-                </View>
-                <View style={styles.architectCard}>
-                  <View style={styles.architectAvatar}>
-                    <Ionicons name="brush-outline" size={24} color="#1B4D3E" />
-                  </View>
-                  <View style={styles.architectInfo}>
-                    <Text style={styles.architectName}>
-                      {attraction.architect}
-                    </Text>
-                    <Text style={styles.architectRole}>
-                      Architekt / Artysta
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            </>
+                )}
+                <Text style={styles.storyBtnText}>
+                  {storyLoading
+                    ? 'Tworzę opowieść...'
+                    : activeAudio === 'story'
+                    ? 'Zatrzymaj'
+                    : story
+                    ? 'Posłuchaj ponownie'
+                    : 'Opowiedz historię'}
+                </Text>
+              </TouchableOpacity>
+            </LinearGradient>
           )}
 
-          <View style={styles.tagsSection}>
-            <Text style={styles.sectionTitle}>Tagi</Text>
-            <View style={styles.tagsRow}>
-              <View style={styles.tag}>
-                <Text style={styles.tagText}>#{attraction?.category}</Text>
+          {/* Opis */}
+          <View style={styles.sectionHeadRow}>
+            <Text style={styles.sectionTitle}>Opis</Text>
+            <TouchableOpacity
+              style={[
+                styles.listenBtn,
+                activeAudio === 'opis' && styles.listenBtnActive
+              ]}
+              onPress={() => narrate('opis', speechText)}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name={activeAudio === 'opis' ? 'stop' : 'volume-high'}
+                size={15}
+                color={activeAudio === 'opis' ? colors.onForest : colors.forest}
+              />
+              <Text
+                style={[
+                  styles.listenText,
+                  activeAudio === 'opis' && styles.listenTextActive
+                ]}
+              >
+                {activeAudio === 'opis' ? 'Zatrzymaj' : 'Słuchaj'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.body}>{description}</Text>
+
+          {/* Ciekawostki */}
+          {facts.length > 0 && (
+            <View style={{ marginTop: space['2xl'] }}>
+              <Text style={styles.sectionTitle}>Ciekawostki</Text>
+              <View style={{ gap: space.md, marginTop: space.md }}>
+                {shownFacts.map((fact, i) => (
+                  <View key={i} style={styles.factRow}>
+                    <View style={styles.factNum}>
+                      <Text style={styles.factNumText}>{i + 1}</Text>
+                    </View>
+                    <Text style={styles.factText}>
+                      {fact.replace(/\*\*/g, '')}
+                    </Text>
+                  </View>
+                ))}
               </View>
-              <View style={styles.tagActive}>
-                <Text style={styles.tagTextActive}>
-                  #{location.split(' ')[0]}
-                </Text>
-              </View>
-              <View style={styles.tag}>
-                <Text style={styles.tagText}>#Lublin</Text>
-              </View>
-              {attraction?.hasAR && (
-                <View style={styles.tagAR}>
-                  <Text style={styles.tagTextAR}>#AR</Text>
-                </View>
+              {facts.length > 2 && (
+                <TouchableOpacity
+                  style={styles.expandBtn}
+                  onPress={() => setExpanded(v => !v)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.expandText}>
+                    {expanded
+                      ? 'Pokaż mniej'
+                      : `Pokaż wszystkie (${facts.length})`}
+                  </Text>
+                  <Ionicons
+                    name={expanded ? 'chevron-up' : 'chevron-down'}
+                    size={16}
+                    color={colors.forest}
+                  />
+                </TouchableOpacity>
               )}
             </View>
-          </View>
+          )}
+
+          {/* Twórca */}
+          {!!attraction?.architect && (
+            <View style={{ marginTop: space['2xl'] }}>
+              <Text style={styles.sectionTitle}>Twórca</Text>
+              <View style={styles.creator}>
+                <View style={styles.creatorAvatar}>
+                  <Ionicons name="brush-outline" size={22} color={colors.forest} />
+                </View>
+                <View>
+                  <Text style={styles.creatorName}>{attraction.architect}</Text>
+                  <Text style={styles.creatorRole}>Architekt / artysta</Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* Informacje (tylko realne) */}
+          {(!!attraction?.openingHours || !!attraction?.price) && (
+            <View style={{ marginTop: space['2xl'] }}>
+              <Text style={styles.sectionTitle}>Informacje</Text>
+              <View style={styles.infoCard}>
+                {!!attraction?.openingHours && (
+                  <View style={styles.infoRow}>
+                    <Ionicons
+                      name="time-outline"
+                      size={18}
+                      color={colors.forest}
+                    />
+                    <Text style={styles.infoLabel}>Godziny otwarcia</Text>
+                    <Text style={styles.infoValue}>
+                      {attraction.openingHours}
+                    </Text>
+                  </View>
+                )}
+                {!!attraction?.openingHours && !!attraction?.price && (
+                  <View style={styles.infoDivider} />
+                )}
+                {!!attraction?.price && (
+                  <View style={styles.infoRow}>
+                    <Ionicons
+                      name="pricetag-outline"
+                      size={18}
+                      color={colors.forest}
+                    />
+                    <Text style={styles.infoLabel}>Wstęp</Text>
+                    <Text style={styles.infoValue}>{attraction.price}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
         </Animated.View>
       </ScrollView>
 
-      {attraction?.hasAudio && attraction.mp3 && (
-        <AudioPlayerModal
-          visible={showAudioModal}
-          audioFile={attraction.mp3}
-          title={title}
-          onClose={() => setShowAudioModal(false)}
-        />
-      )}
-
       <GeminiChatModal
-        visible={showChatModal}
+        visible={showChat}
         attractionTitle={title}
         attractionDescription={description}
         attractionLocation={location}
-        onClose={() => setShowChatModal(false)}
+        onClose={() => setShowChat(false)}
       />
-
-      {attraction && (
-        <ARViewModal
-          visible={showARModal}
-          attraction={attraction}
-          onClose={() => setShowARModal(false)}
-        />
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  mainWrapper: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    position: 'relative',
-    overflow: 'hidden',
-    paddingTop: 35
+  screen: { flex: 1, backgroundColor: colors.bg },
+
+  hero: { height: 320, backgroundColor: colors.surfaceAlt },
+  heroTop: {
+    position: 'absolute',
+    left: space.lg,
+    right: space.lg,
+    flexDirection: 'row',
+    justifyContent: 'space-between'
   },
-  shimmerContainer: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
+  roundBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(12,39,28,0.5)',
     justifyContent: 'center',
-    zIndex: 0
+    alignItems: 'center'
   },
-  rotatingGradient: {
-    width: GRADIENT_SIZE,
-    height: GRADIENT_SIZE,
-    position: 'absolute'
-  },
-  scrollView: {
-    flex: 1,
-    zIndex: 1
-  },
-  scrollContent: {
-    padding: 20
-  },
-  heroImageContainer: {
-    height: 220,
-    borderRadius: 24,
-    overflow: 'hidden',
-    marginBottom: 16,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.2,
-        shadowRadius: 20
-      },
-      android: {
-        elevation: 10
-      }
-    })
-  },
-  heroImage: {
-    width: '100%',
-    height: '100%'
-  },
-  heroGradient: {
+  heroBottom: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 100
-  },
-  heroBadges: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
+    left: space.xl,
+    bottom: space['2xl'] + space.lg,
     flexDirection: 'row',
-    gap: 8
+    gap: space.sm
   },
-  heroBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
+  catChip: {
+    paddingHorizontal: space.md,
     paddingVertical: 6,
-    borderRadius: 8,
-    gap: 4
+    borderRadius: radii.pill
   },
-  arBadge: {
-    backgroundColor: 'rgba(139, 92, 246, 0.9)'
-  },
-  audioBadge: {
-    backgroundColor: 'rgba(74, 222, 128, 0.9)'
-  },
-  aiBadgePill: {
-    backgroundColor: 'rgba(251, 191, 36, 0.9)'
-  },
-  heroBadgeText: {
-    color: '#FFFFFF',
+  catChipText: {
+    color: colors.white,
+    fontFamily: font.bold,
     fontSize: 11,
-    fontFamily: 'Kollektif-Bold'
+    letterSpacing: 0.4
   },
-  categoryBadgeHero: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    backgroundColor: 'rgba(27, 77, 62, 0.95)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10
-  },
-  categoryBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontFamily: 'Kollektif-Bold',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5
-  },
-  yearBadgeHero: {
-    position: 'absolute',
-    bottom: 16,
-    right: 16,
+  yearChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 12,
+    gap: 5,
+    backgroundColor: 'rgba(12,39,28,0.55)',
+    paddingHorizontal: space.md,
     paddingVertical: 6,
-    borderRadius: 10
+    borderRadius: radii.pill
   },
-  galleryDots: {
+  yearChipText: { color: colors.white, fontFamily: font.bold, fontSize: 12 },
+  dots: {
     position: 'absolute',
-    bottom: 12,
+    bottom: space.md,
     left: 0,
     right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 6
   },
-  galleryDot: {
+  dot: {
     width: 6,
     height: 6,
     borderRadius: 3,
     backgroundColor: 'rgba(255,255,255,0.5)'
   },
-  galleryDotActive: {
-    width: 18,
-    backgroundColor: '#FFF'
+  dotActive: { width: 18, backgroundColor: colors.white },
+
+  sheet: {
+    marginTop: -space['2xl'],
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    paddingHorizontal: space.xl,
+    paddingTop: space['2xl']
   },
-  galleryCounter: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10
-  },
-  galleryCounterText: {
-    color: '#FFF',
-    fontSize: 11,
-    fontFamily: 'Kollektif-Bold'
-  },
-  heroFavoriteButton: {
-    position: 'absolute',
-    bottom: 16,
-    left: 16,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)'
-  },
-  yearBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontFamily: 'Kollektif-Bold'
-  },
-  contentCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 24,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.15,
-        shadowRadius: 20
-      },
-      android: {
-        elevation: 8
-      }
-    })
-  },
-  mainSection: {
-    marginBottom: 20
-  },
-  title: {
-    fontSize: 26,
-    fontFamily: 'Kollektif-Bold',
-    color: '#000000',
-    marginBottom: 8,
-    lineHeight: 32
-  },
+  title: { ...type.display, fontSize: 27, lineHeight: 33 },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6
+    gap: 5,
+    marginTop: space.sm
   },
-  locationText: {
-    fontSize: 15,
-    color: '#1B4D3E',
-    fontFamily: 'Kollektif-Bold'
-  },
-  primaryActionsSection: {
-    marginBottom: 20,
-    gap: 12
-  },
-  aiPrimaryButton: {
-    borderRadius: 16,
+  location: { fontFamily: font.bold, fontSize: 14, color: colors.forest },
+
+  aiBtn: {
+    marginTop: space.xl,
+    borderRadius: radii.lg,
     overflow: 'hidden',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#1B4D3E',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.3,
-        shadowRadius: 12
-      },
-      android: {
-        elevation: 8
-      }
-    })
+    ...shadow.md
   },
-  aiPrimaryGradient: {
+  aiBtnInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    gap: 14
+    gap: space.md,
+    padding: space.lg
   },
-  aiPrimaryIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: 'rgba(74, 222, 128, 0.2)',
+  aiIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radii.md,
+    backgroundColor: 'rgba(55,208,138,0.18)',
     justifyContent: 'center',
     alignItems: 'center'
   },
-  aiPrimaryTextContainer: {
-    flex: 1
-  },
-  aiPrimaryTitle: {
-    fontSize: 16,
-    fontFamily: 'Kollektif-Bold',
-    color: '#FFFFFF',
-    marginBottom: 2
-  },
-  aiPrimarySubtitle: {
+  aiTitle: { fontFamily: font.bold, fontSize: 16, color: colors.onForest },
+  aiSub: {
+    fontFamily: font.regular,
     fontSize: 13,
-    fontFamily: 'Kollektif',
-    color: 'rgba(255, 255, 255, 0.8)'
+    color: colors.onForestSoft,
+    marginTop: 2
   },
-  navigationButtonsRow: {
-    flexDirection: 'row',
-    gap: 12
+
+  storyCard: {
+    marginTop: space.md,
+    borderRadius: radii.lg,
+    padding: space.lg,
+    ...shadow.md
   },
-  navigationButton: {
-    flex: 1,
-    backgroundColor: '#1B4D3E',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#1B4D3E',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8
-      },
-      android: {
-        elevation: 6
-      }
-    })
-  },
-  navigationIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8
-  },
-  navigationButtonText: {
-    fontSize: 16,
-    fontFamily: 'Kollektif-Bold',
-    color: '#FFFFFF',
-    marginBottom: 2
-  },
-  navigationButtonSubtext: {
-    fontSize: 12,
-    fontFamily: 'Kollektif',
-    color: 'rgba(255, 255, 255, 0.7)'
-  },
-  mapButton: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#1B4D3E',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8
-      },
-      android: {
-        elevation: 4
-      }
-    })
-  },
-  mapIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#E8F5E9',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8
-  },
-  mapButtonText: {
-    fontSize: 16,
-    fontFamily: 'Kollektif-Bold',
-    color: '#1B4D3E',
-    marginBottom: 2
-  },
-  mapButtonSubtext: {
-    fontSize: 12,
-    fontFamily: 'Kollektif',
-    color: '#666'
-  },
-  quickActionsSection: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 24,
-    marginBottom: 0
-  },
-  quickActionButton: {
-    alignItems: 'center',
-    gap: 8
-  },
-  quickActionIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8
-      },
-      android: {
-        elevation: 4
-      }
-    })
-  },
-  quickActionLabel: {
-    fontSize: 12,
-    fontFamily: 'Kollektif-Bold',
-    color: '#333'
-  },
-  separator: {
-    height: 1,
-    backgroundColor: '#EEEEEE',
-    marginVertical: 20
-  },
-  descriptionSection: {
-    marginBottom: 0
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontFamily: 'Kollektif-Bold',
-    color: '#000000'
-  },
-  description: {
-    fontSize: 15,
-    lineHeight: 24,
-    color: '#555555',
-    fontFamily: 'Kollektif'
-  },
-  funFactsSection: {
-    marginBottom: 0
-  },
-  funFactsCount: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginLeft: 8
-  },
-  funFactsCountText: {
-    fontSize: 12,
-    fontFamily: 'Kollektif-Bold',
-    color: '#92400E'
-  },
-  funFactsList: {
-    gap: 12
-  },
-  funFactItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#FEF9E7',
-    padding: 14,
-    borderRadius: 14,
-    gap: 12
-  },
-  funFactNumber: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#F59E0B',
+  storyHead: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  storyIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: radii.md,
+    backgroundColor: 'rgba(55,208,138,0.18)',
     justifyContent: 'center',
     alignItems: 'center'
   },
-  funFactNumberText: {
-    fontSize: 14,
-    fontFamily: 'Kollektif-Bold',
-    color: '#FFFFFF'
+  storyTitle: { fontFamily: font.bold, fontSize: 16, color: colors.onForest },
+  storySub: {
+    fontFamily: font.regular,
+    fontSize: 13,
+    color: colors.onForestSoft,
+    marginTop: 2
   },
-  funFactText: {
+  storyLive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(55,208,138,0.16)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radii.pill
+  },
+  storyLiveText: { fontFamily: font.bold, fontSize: 11, color: colors.mint },
+  storyText: {
+    fontFamily: font.regular,
+    fontSize: 14.5,
+    lineHeight: 23,
+    color: colors.onForest,
+    marginTop: space.md
+  },
+  storyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    backgroundColor: colors.mint,
+    paddingVertical: 13,
+    borderRadius: radii.md,
+    marginTop: space.lg
+  },
+  storyBtnText: { fontFamily: font.bold, fontSize: 15, color: colors.mintInk },
+
+  navRow: { flexDirection: 'row', gap: space.md, marginTop: space.md },
+  navBtn: {
     flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#78350F',
-    fontFamily: 'Kollektif'
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    backgroundColor: colors.forest,
+    paddingVertical: space.lg,
+    borderRadius: radii.md
   },
-  expandButton: {
+  navBtnGhost: {
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.forest
+  },
+  navBtnText: { fontFamily: font.bold, fontSize: 15, color: colors.onForest },
+  navBtnTextGhost: { color: colors.forest },
+
+  sectionHeadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: space['3xl']
+  },
+  sectionTitle: { ...type.title, fontSize: 19 },
+  listenBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: space.md,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
+    backgroundColor: colors.mintWash,
+    borderWidth: 1,
+    borderColor: 'rgba(20,61,43,0.18)'
+  },
+  listenBtnActive: { backgroundColor: colors.forest, borderColor: colors.forest },
+  listenText: { fontFamily: font.bold, fontSize: 13, color: colors.forest },
+  listenTextActive: { color: colors.onForest },
+  body: { ...type.body, marginTop: space.md, color: colors.ink },
+
+  factRow: {
+    flexDirection: 'row',
+    gap: space.md,
+    backgroundColor: colors.surface,
+    padding: space.lg,
+    borderRadius: radii.md,
+    ...shadow.sm
+  },
+  factNum: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.mintWash,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  factNumText: { fontFamily: font.bold, fontSize: 13, color: colors.forest },
+  factText: { flex: 1, ...type.small, color: colors.ink, lineHeight: 21 },
+  expandBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    marginTop: 12,
-    paddingVertical: 10
+    paddingVertical: space.md,
+    marginTop: space.xs
   },
-  expandButtonText: {
-    fontSize: 14,
-    fontFamily: 'Kollektif-Bold',
-    color: '#1B4D3E'
-  },
-  quickInfoSection: {
-    marginBottom: 20
-  },
-  infoGrid: {
+  expandText: { fontFamily: font.bold, fontSize: 14, color: colors.forest },
+
+  creator: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 12
+    alignItems: 'center',
+    gap: space.md,
+    backgroundColor: colors.surface,
+    padding: space.lg,
+    borderRadius: radii.md,
+    marginTop: space.md,
+    ...shadow.sm
   },
-  infoCard: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center'
-  },
-  infoIconContainer: {
+  creatorAvatar: {
     width: 48,
     height: 48,
-    borderRadius: 24,
-    backgroundColor: '#E8F5E9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12
-  },
-  infoLabel: {
-    fontSize: 11,
-    fontFamily: 'Kollektif',
-    color: '#666666',
-    marginBottom: 4,
-    textAlign: 'center'
-  },
-  infoValue: {
-    fontSize: 13,
-    fontFamily: 'Kollektif-Bold',
-    color: '#000000',
-    textAlign: 'center'
-  },
-  architectSection: {
-    marginBottom: 20
-  },
-  architectCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-    padding: 16,
-    borderRadius: 16,
-    gap: 14
-  },
-  architectAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#E8F5E9',
+    borderRadius: radii.pill,
+    backgroundColor: colors.mintWash,
     justifyContent: 'center',
     alignItems: 'center'
   },
-  architectInfo: {
-    flex: 1
-  },
-  architectName: {
-    fontSize: 16,
-    fontFamily: 'Kollektif-Bold',
-    color: '#000000',
-    marginBottom: 2
-  },
-  architectRole: {
+  creatorName: { fontFamily: font.bold, fontSize: 15, color: colors.ink },
+  creatorRole: {
+    fontFamily: font.regular,
     fontSize: 13,
-    fontFamily: 'Kollektif',
-    color: '#666666'
+    color: colors.inkFaint,
+    marginTop: 1
   },
-  tagsSection: {
-    marginBottom: 8
+
+  infoCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    paddingHorizontal: space.lg,
+    marginTop: space.md,
+    ...shadow.sm
   },
-  tagsRow: {
+  infoRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 12
+    alignItems: 'center',
+    gap: space.md,
+    paddingVertical: space.lg
   },
-  tag: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: '#F5F5F5'
-  },
-  tagText: {
-    color: '#666666',
-    fontSize: 13,
-    fontFamily: 'Kollektif'
-  },
-  tagActive: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: '#E8F5E9'
-  },
-  tagTextActive: {
-    color: '#1B4D3E',
-    fontSize: 13,
-    fontFamily: 'Kollektif-Bold'
-  },
-  tagAR: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: '#EDE9FE'
-  },
-  tagTextAR: {
-    color: '#7C3AED',
-    fontSize: 13,
-    fontFamily: 'Kollektif-Bold'
-  }
+  infoLabel: { flex: 1, fontFamily: font.regular, fontSize: 14, color: colors.inkSoft },
+  infoValue: { fontFamily: font.bold, fontSize: 14, color: colors.ink },
+  infoDivider: { height: 1, backgroundColor: colors.line }
 });

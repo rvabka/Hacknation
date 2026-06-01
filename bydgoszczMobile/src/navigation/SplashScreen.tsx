@@ -5,118 +5,106 @@ import {
   StyleSheet,
   Animated,
   Easing,
-  Dimensions,
   Image
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
-const { width, height } = Dimensions.get('window');
-
 interface SplashScreenProps {
   onFinish: () => void;
 }
 
+const MINT = '#37D08A';
+
+const FEATURES: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+}[] = [
+  { icon: 'map-outline', label: 'Mapa' },
+  { icon: 'sparkles-outline', label: 'Przewodnik AI' },
+  { icon: 'navigate-outline', label: 'Trasy' }
+];
+
 export default function SplashScreen({ onFinish }: SplashScreenProps) {
-  const logoScale = useRef(new Animated.Value(0.3)).current;
+  const logoScale = useRef(new Animated.Value(0.7)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
+  const glow = useRef(new Animated.Value(0.6)).current;
   const textOpacity = useRef(new Animated.Value(0)).current;
-  const textTranslateY = useRef(new Animated.Value(30)).current;
+  const textY = useRef(new Animated.Value(20)).current;
   const featuresOpacity = useRef(new Animated.Value(0)).current;
-  const featuresTranslateY = useRef(new Animated.Value(20)).current;
-  const progressWidth = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const rotateAnim = useRef(new Animated.Value(0)).current;
+  const featuresY = useRef(new Animated.Value(16)).current;
+  const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.2,
-          duration: 1000,
+        Animated.timing(glow, {
+          toValue: 1,
+          duration: 1400,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true
         }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1000,
+        Animated.timing(glow, {
+          toValue: 0.6,
+          duration: 1400,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true
         })
       ])
     ).start();
 
-    Animated.loop(
-      Animated.timing(rotateAnim, {
-        toValue: 1,
-        duration: 8000,
-        easing: Easing.linear,
-        useNativeDriver: true
-      })
-    ).start();
-
     Animated.sequence([
       Animated.parallel([
         Animated.spring(logoScale, {
           toValue: 1,
-          friction: 8,
-          tension: 40,
+          friction: 7,
+          tension: 50,
           useNativeDriver: true
         }),
         Animated.timing(logoOpacity, {
           toValue: 1,
-          duration: 600,
+          duration: 500,
           useNativeDriver: true
         })
       ]),
-
-      Animated.delay(200),
+      Animated.delay(120),
       Animated.parallel([
         Animated.timing(textOpacity, {
           toValue: 1,
-          duration: 500,
+          duration: 450,
           useNativeDriver: true
         }),
-        Animated.spring(textTranslateY, {
+        Animated.spring(textY, {
           toValue: 0,
           friction: 8,
-          tension: 40,
+          tension: 50,
           useNativeDriver: true
         })
       ]),
-
-      Animated.delay(200),
+      Animated.delay(120),
       Animated.parallel([
         Animated.timing(featuresOpacity, {
           toValue: 1,
-          duration: 500,
+          duration: 450,
           useNativeDriver: true
         }),
-        Animated.spring(featuresTranslateY, {
+        Animated.spring(featuresY, {
           toValue: 0,
           friction: 8,
-          tension: 40,
+          tension: 50,
           useNativeDriver: true
         })
       ]),
-
-      Animated.timing(progressWidth, {
+      Animated.timing(progress, {
         toValue: 1,
-        duration: 1500,
+        duration: 1100,
         easing: Easing.inOut(Easing.ease),
         useNativeDriver: false
       })
-    ]).start(() => {
-      setTimeout(onFinish, 300);
-    });
+    ]).start(() => setTimeout(onFinish, 250));
   }, []);
 
-  const spin = rotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg']
-  });
-
-  const progressInterpolated = progressWidth.interpolate({
+  const progressWidth = progress.interpolate({
     inputRange: [0, 1],
     outputRange: ['0%', '100%']
   });
@@ -124,76 +112,34 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={['#1B4D3E', '#0D2B22', '#061512']}
-        style={styles.gradient}
+        colors={['#1B4D3E', '#0C271C', '#061512']}
+        style={StyleSheet.absoluteFill}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       />
 
-      <Animated.View
-        style={[
-          styles.decorativeCircle,
-          styles.circle1,
-          { transform: [{ scale: pulseAnim }] }
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.decorativeCircle,
-          styles.circle2,
-          { transform: [{ scale: pulseAnim }] }
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.decorativeCircle,
-          styles.circle3,
-          {
-            transform: [
-              {
-                scale: pulseAnim.interpolate({
-                  inputRange: [1, 1.2],
-                  outputRange: [1.2, 1]
-                })
-              }
-            ]
-          }
-        ]}
-      />
-
-      <Animated.View
-        style={[styles.rotatingRing, { transform: [{ rotate: spin }] }]}
-      >
-        <View style={styles.ringDot} />
-        <View style={[styles.ringDot, styles.ringDot2]} />
-        <View style={[styles.ringDot, styles.ringDot3]} />
-      </Animated.View>
-
       <View style={styles.content}>
-        <Animated.View
-          style={[
-            styles.logoContainer,
-            {
-              opacity: logoOpacity,
-              transform: [{ scale: logoScale }]
-            }
-          ]}
-        >
-          <Image
-            source={require('../../assets/logo.png')}
-            style={styles.logo}
-            resizeMode="contain"
+        <View style={styles.logoBlock}>
+          <Animated.View
+            style={[styles.glow, { opacity: glow }]}
+            pointerEvents="none"
           />
-        </Animated.View>
+          <Animated.View
+            style={[
+              styles.logoTile,
+              { opacity: logoOpacity, transform: [{ scale: logoScale }] }
+            ]}
+          >
+            <Image
+              source={require('../../assets/logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </Animated.View>
+        </View>
 
         <Animated.View
-          style={[
-            styles.textContainer,
-            {
-              opacity: textOpacity,
-              transform: [{ translateY: textTranslateY }]
-            }
-          ]}
+          style={{ opacity: textOpacity, transform: [{ translateY: textY }] }}
         >
           <Text style={styles.title}>Odkryj Lublin</Text>
           <Text style={styles.subtitle}>
@@ -203,235 +149,131 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
 
         <Animated.View
           style={[
-            styles.featuresContainer,
-            {
-              opacity: featuresOpacity,
-              transform: [{ translateY: featuresTranslateY }]
-            }
+            styles.features,
+            { opacity: featuresOpacity, transform: [{ translateY: featuresY }] }
           ]}
         >
-          <View style={styles.featureItem}>
-            <View style={[styles.featureIcon, styles.featureIconAR]}>
-              <Ionicons name="cube-outline" size={20} color="#8B5CF6" />
-            </View>
-            <Text style={styles.featureText}>AR</Text>
-          </View>
-
-          <View style={styles.featureDivider} />
-
-          <View style={styles.featureItem}>
-            <View style={[styles.featureIcon, styles.featureIconAudio]}>
-              <Ionicons name="headset-outline" size={20} color="#4ADE80" />
-            </View>
-            <Text style={styles.featureText}>Audio</Text>
-          </View>
-
-          <View style={styles.featureDivider} />
-
-          <View style={styles.featureItem}>
-            <View style={[styles.featureIcon, styles.featureIconAI]}>
-              <Ionicons name="sparkles" size={20} color="#FBBF24" />
-            </View>
-            <Text style={styles.featureText}>AI Guide</Text>
-          </View>
+          {FEATURES.map((f, i) => (
+            <React.Fragment key={f.label}>
+              {i > 0 && <View style={styles.featureDivider} />}
+              <View style={styles.featureItem}>
+                <View style={styles.featureIcon}>
+                  <Ionicons name={f.icon} size={19} color={MINT} />
+                </View>
+                <Text style={styles.featureLabel}>{f.label}</Text>
+              </View>
+            </React.Fragment>
+          ))}
         </Animated.View>
 
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBackground}>
-            <Animated.View
-              style={[styles.progressBar, { width: progressInterpolated }]}
-            />
-          </View>
-          <Text style={styles.loadingText}>Ładowanie...</Text>
+        <View style={styles.progressTrack}>
+          <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
         </View>
       </View>
 
-      <View style={styles.bottomDecoration}>
-        <Text style={styles.versionText}>v1.0.0</Text>
-        <View style={styles.madeWithLove}>
-          <Text style={styles.madeWithText}>Made with</Text>
-          <Ionicons name="heart" size={12} color="#EF4444" />
-          <Text style={styles.madeWithText}>in Lublin</Text>
-        </View>
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>Zrobione z</Text>
+        <Ionicons name="heart" size={12} color={MINT} />
+        <Text style={styles.footerText}>w Lublinie</Text>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  content: { alignItems: 'center', paddingHorizontal: 40, width: '100%' },
+
+  logoBlock: {
+    width: 132,
+    height: 132,
     justifyContent: 'center',
-    alignItems: 'center'
-  },
-  gradient: {
-    ...StyleSheet.absoluteFillObject
-  },
-  decorativeCircle: {
-    position: 'absolute',
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(74, 222, 128, 0.1)'
-  },
-  circle1: {
-    width: width * 1.5,
-    height: width * 1.5,
-    top: -width * 0.5,
-    left: -width * 0.25
-  },
-  circle2: {
-    width: width * 1.2,
-    height: width * 1.2,
-    bottom: -width * 0.4,
-    right: -width * 0.3,
-    borderColor: 'rgba(139, 92, 246, 0.1)'
-  },
-  circle3: {
-    width: width * 0.8,
-    height: width * 0.8,
-    top: height * 0.1,
-    right: -width * 0.2,
-    borderColor: 'rgba(251, 191, 36, 0.1)'
-  },
-  rotatingRing: {
-    position: 'absolute',
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    borderWidth: 1,
-    borderColor: 'rgba(74, 222, 128, 0.2)',
-    borderStyle: 'dashed'
-  },
-  ringDot: {
-    position: 'absolute',
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#4ADE80',
-    top: -4,
-    left: '50%',
-    marginLeft: -4
-  },
-  ringDot2: {
-    top: '50%',
-    left: -4,
-    marginTop: -4,
-    marginLeft: 0,
-    backgroundColor: '#8B5CF6'
-  },
-  ringDot3: {
-    top: '50%',
-    left: 'auto',
-    right: -4,
-    marginTop: -4,
-    marginLeft: 0,
-    backgroundColor: '#FBBF24'
-  },
-  content: {
     alignItems: 'center',
-    paddingHorizontal: 40
+    marginBottom: 28
   },
-  logoContainer: {
-    marginBottom: 24
+  glow: {
+    position: 'absolute',
+    width: 168,
+    height: 168,
+    borderRadius: 84,
+    backgroundColor: 'rgba(55,208,138,0.18)'
   },
-  logo: {
-    width: 180,
-    height: 160
-  },
-  textContainer: {
+  logoTile: {
+    width: 124,
+    height: 124,
+    borderRadius: 30,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 32
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.3,
+    shadowRadius: 24
   },
+  logo: { width: 104, height: 104 },
+
   title: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: '800',
     color: '#FFFFFF',
-    marginBottom: 8,
-    letterSpacing: 0.5
+    textAlign: 'center',
+    letterSpacing: 0.3
   },
   subtitle: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.7)',
-    textAlign: 'center'
+    fontSize: 15,
+    color: 'rgba(244,247,242,0.7)',
+    textAlign: 'center',
+    marginTop: 8
   },
-  featuresContainer: {
+
+  features: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(55,208,138,0.18)',
+    borderRadius: 18,
     paddingVertical: 16,
-    paddingHorizontal: 24,
+    paddingHorizontal: 22,
+    marginTop: 36,
     marginBottom: 40
   },
-  featureItem: {
-    alignItems: 'center',
-    gap: 8
-  },
+  featureItem: { alignItems: 'center', gap: 8, minWidth: 64 },
   featureIcon: {
     width: 40,
     height: 40,
-    borderRadius: 12,
+    borderRadius: 13,
+    backgroundColor: 'rgba(55,208,138,0.14)',
     justifyContent: 'center',
     alignItems: 'center'
   },
-  featureIconAR: {
-    backgroundColor: 'rgba(139, 92, 246, 0.2)'
-  },
-  featureIconAudio: {
-    backgroundColor: 'rgba(74, 222, 128, 0.2)'
-  },
-  featureIconAI: {
-    backgroundColor: 'rgba(251, 191, 36, 0.2)'
-  },
-  featureText: {
+  featureLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.8)'
+    color: 'rgba(244,247,242,0.85)'
   },
   featureDivider: {
     width: 1,
-    height: 40,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    marginHorizontal: 20
+    height: 44,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    marginHorizontal: 14
   },
-  progressContainer: {
-    width: '100%',
-    alignItems: 'center'
-  },
-  progressBackground: {
-    width: '80%',
+
+  progressTrack: {
+    width: '74%',
     height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: 2,
-    overflow: 'hidden',
-    marginBottom: 12
+    overflow: 'hidden'
   },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#4ADE80',
-    borderRadius: 2
-  },
-  loadingText: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.5)'
-  },
-  bottomDecoration: {
+  progressFill: { height: '100%', backgroundColor: MINT, borderRadius: 2 },
+
+  footer: {
     position: 'absolute',
-    bottom: 50,
-    alignItems: 'center',
-    gap: 8
-  },
-  versionText: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.3)'
-  },
-  madeWithLove: {
+    bottom: 48,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4
+    gap: 5
   },
-  madeWithText: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.4)'
-  }
+  footerText: { fontSize: 12, color: 'rgba(244,247,242,0.45)' }
 });

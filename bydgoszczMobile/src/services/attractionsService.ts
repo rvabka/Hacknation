@@ -71,10 +71,6 @@ function rowToAttraction(row: DbAttractionRow): Attraction {
     funFacts: facts,
     openingHours: row.opening_hours ?? undefined,
     price: row.price ?? undefined,
-    mp3: assets.mp3,
-    model: assets.model,
-    hasAR: !!assets.model || row.has_ar,
-    hasAudio: !!assets.mp3 || row.has_audio,
     hasAI: row.has_ai
   };
 }

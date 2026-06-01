@@ -24,14 +24,15 @@ import MapView, {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
-import ARViewModal from '../components/ARViewModal';
 import { useAppNavigation } from '../hooks/useAppNavigation';
 import { useTour } from '../context/TourContext';
+import { useSpeech } from '../hooks/useSpeech';
 import {
   CATEGORY_ICONS,
   CATEGORY_COLORS
 } from '../data/attractions';
 import { useAttractions } from '../hooks/useAttractions';
+import { colors, radii, font, shadow } from '../theme';
 
 const LUBLIN_COORDS: Region = {
   latitude: 51.2465,
@@ -69,8 +70,11 @@ interface Cluster {
   id: string;
   coordinate: { latitude: number; longitude: number };
   count: number;
-  items: { id: string; coordinate: { latitude: number; longitude: number }; category: string; model?: any }[];
-  hasAR: boolean;
+  items: {
+    id: string;
+    coordinate: { latitude: number; longitude: number };
+    category: string;
+  }[];
 }
 
 // Klastrowanie siatkowe: dzielimy widoczny obszar mapy na komórki proporcjonalne
@@ -85,8 +89,7 @@ function buildClusters(
       id: it.id,
       coordinate: it.coordinate,
       count: 1,
-      items: [it],
-      hasAR: !!it.model
+      items: [it]
     }));
   }
 
@@ -104,8 +107,7 @@ function buildClusters(
         id: `cluster_${key}`,
         coordinate: { latitude: 0, longitude: 0 },
         count: 0,
-        items: [],
-        hasAR: false
+        items: []
       };
       grid.set(key, c);
     }
@@ -122,7 +124,6 @@ function buildClusters(
     };
     c.count++;
     c.items.push(it);
-    if (it.model) c.hasAR = true;
   }
 
   // Klastrom z count===1 nadajemy id atrakcji – pozwala podpiąć pod istniejące
@@ -135,19 +136,18 @@ function buildClusters(
 const isAndroid = Platform.OS === 'android';
 
 const IOSMarker = React.memo(
-  ({ category, hasModel }: { category: string; hasModel: boolean }) => {
+  ({ category }: { category: string }) => {
     const color =
-      CATEGORY_COLORS[category as keyof typeof CATEGORY_COLORS] || '#4ADE80';
+      CATEGORY_COLORS[category as keyof typeof CATEGORY_COLORS] || colors.mint;
     const icon =
       CATEGORY_ICONS[category as keyof typeof CATEGORY_ICONS] ||
       'location-outline';
 
     return (
       <View style={iosStyles.markerContainer}>
-        <View style={[iosStyles.marker, hasModel && iosStyles.markerAR]}>
+        <View style={iosStyles.marker}>
           <Ionicons name={icon as any} size={18} color={color} />
         </View>
-        {hasModel && <View style={iosStyles.arDot} />}
       </View>
     );
   },
@@ -172,7 +172,7 @@ const iosStyles = StyleSheet.create({
     alignItems: 'center'
   },
   marker: {
-    backgroundColor: 'rgba(0,0,0,0.9)',
+    backgroundColor: colors.forestDeep,
     padding: 10,
     borderRadius: 14,
     borderWidth: 2,
@@ -183,7 +183,7 @@ const iosStyles = StyleSheet.create({
     shadowRadius: 8
   },
   markerAR: {
-    borderColor: '#4ADE80'
+    borderColor: colors.mint
   },
   arDot: {
     position: 'absolute',
@@ -192,9 +192,9 @@ const iosStyles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#4ADE80',
+    backgroundColor: colors.mint,
     borderWidth: 2,
-    borderColor: 'rgba(0,0,0,0.9)'
+    borderColor: colors.forestDeep
   },
   clusterMarker: {
     width: 64,
@@ -204,14 +204,14 @@ const iosStyles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 3,
-    borderColor: '#4ADE80',
-    shadowColor: '#4ADE80',
+    borderColor: colors.mint,
+    shadowColor: colors.mint,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.6,
     shadowRadius: 15
   },
   clusterText: {
-    color: '#4ADE80',
+    color: colors.mint,
     fontSize: 22,
     fontWeight: '700'
   },
@@ -225,7 +225,7 @@ const iosStyles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#4ADE80',
+    backgroundColor: colors.mint,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 3,
@@ -256,15 +256,11 @@ export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const { attractions } = useAttractions();
   const { tour, endTour } = useTour();
-  const arCount = useMemo(
-    () => attractions.filter(a => a.model || a.hasAR).length,
-    [attractions]
-  );
+  const { speak: speakGuide, stop: stopGuide } = useSpeech();
   const mapRef = useRef<MapView>(null);
   const cardAnim = useRef(new Animated.Value(0)).current;
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showARModal, setShowARModal] = useState(false);
   const [userLocation, setUserLocation] = useState<{
     latitude: number;
     longitude: number;
@@ -272,6 +268,22 @@ export default function MapScreen() {
   const [region, setRegion] = useState<Region>(LUBLIN_COORDS);
   const [isCardVisible, setIsCardVisible] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  // react-native-maps z tracksViewChanges={trackChanges} robi snapshot custom-markera
+  // od razu po montażu – jeśli treść nie zdążyła się wyrenderować, marker wychodzi
+  // pusty/niewidoczny. Po każdej zmianie zestawu klastrów (np. po kliknięciu klastra
+  // i zmianie zoomu) włączamy tracking na chwilę, żeby markery się poprawnie
+  // narysowały, a potem wyłączamy dla wydajności.
+  const [trackChanges, setTrackChanges] = useState(true);
+
+  // Wirtualny spacer (auto-przewodnik): mapa sama przelatuje po przystankach
+  // trasy, lektor czyta opis każdego miejsca, po skończeniu → następny przystanek.
+  const [guideActive, setGuideActive] = useState(false);
+  const [guideStep, setGuideStep] = useState(0);
+  const [guidePaused, setGuidePaused] = useState(false);
+  // "Generacja" bieżącej wypowiedzi. Zatrzymanie utterance na iOS potrafi odpalić
+  // onDone poprzedniej wypowiedzi – bez tego strażnika onDone z anulowanej mowy
+  // przesuwałby krok i powstawała kaskada aż do ostatniego przystanku.
+  const speakTokenRef = useRef(0);
 
   const selectedAttraction = useMemo(
     () => attractions.find(a => a.id === selectedId) || null,
@@ -286,6 +298,14 @@ export default function MapScreen() {
     () => buildClusters(attractions, deltaFromBucket(clusterBucket)),
     [attractions, clusterBucket]
   );
+
+  // Gdy zmienia się zestaw klastrów, daj markerom ~700 ms na poprawne
+  // narysowanie się (tracking on), po czym zamroź dla wydajności.
+  useEffect(() => {
+    setTrackChanges(true);
+    const t = setTimeout(() => setTrackChanges(false), 700);
+    return () => clearTimeout(t);
+  }, [clusters, tour]);
 
   // Współrzędne linii trasy: pozycja startowa (użytkownik) → kolejne przystanki.
   const routeCoords = useMemo(() => {
@@ -323,7 +343,7 @@ export default function MapScreen() {
 
   const getCategoryColor = useCallback(
     (category: string) =>
-      CATEGORY_COLORS[category as keyof typeof CATEGORY_COLORS] || '#4ADE80',
+      CATEGORY_COLORS[category as keyof typeof CATEGORY_COLORS] || colors.mint,
     []
   );
 
@@ -392,34 +412,44 @@ export default function MapScreen() {
 
   const handleClusterPress = useCallback(
     (cluster: Cluster) => {
-      // Zoom DO BBOX zawartości klastra – nie do stałego "kolejnego poziomu".
-      // Dzięki temu 1 klik dramatycznie przybliża obszar klastra zamiast
-      // wymagać 3-4 kliknięć żeby dojść do pojedynczych markerów.
+      // Pojedynczy obiekt schowany pod id klastra – potraktuj jak zwykły marker.
+      if (cluster.items.length <= 1) {
+        handleMarkerPress(cluster.items[0]?.id ?? cluster.id);
+        return;
+      }
+
       const lats = cluster.items.map(it => it.coordinate.latitude);
       const lngs = cluster.items.map(it => it.coordinate.longitude);
-      const minLat = Math.min(...lats);
-      const maxLat = Math.max(...lats);
-      const minLng = Math.min(...lngs);
-      const maxLng = Math.max(...lngs);
+      const span = Math.max(
+        Math.max(...lats) - Math.min(...lats),
+        Math.max(...lngs) - Math.min(...lngs)
+      );
 
-      // Rozmiar bbox + 40% paddingu na widoczność markerów przy krawędziach.
-      const rawSpan = Math.max(maxLat - minLat, maxLng - minLng);
-      const fitDelta = Math.max(rawSpan * 1.4, INDIVIDUAL_ZOOM_THRESHOLD / 2);
-      // Zabezpieczenie: zawsze co najmniej 1.8× zoom-in (żeby było widać efekt).
-      const maxAllowed = region.latitudeDelta / 1.8;
-      const finalDelta = Math.min(fitDelta, maxAllowed);
+      // Obiekty praktycznie w jednym punkcie – fitToCoordinates wbiłoby zoom do
+      // oporu, więc zamiast tego przybliżamy na rozsądny poziom ulicy wokół środka.
+      if (span < 0.0006) {
+        mapRef.current?.animateToRegion(
+          {
+            latitude: (Math.min(...lats) + Math.max(...lats)) / 2,
+            longitude: (Math.min(...lngs) + Math.max(...lngs)) / 2,
+            latitudeDelta: 0.004,
+            longitudeDelta: 0.004
+          },
+          350
+        );
+        return;
+      }
 
-      mapRef.current?.animateToRegion(
+      // Standardowo: dopasuj kadr tak, by WSZYSTKIE obiekty klastra były widoczne.
+      mapRef.current?.fitToCoordinates(
+        cluster.items.map(it => it.coordinate),
         {
-          latitude: (minLat + maxLat) / 2,
-          longitude: (minLng + maxLng) / 2,
-          latitudeDelta: finalDelta,
-          longitudeDelta: finalDelta
-        },
-        350
+          edgePadding: { top: 150, right: 80, bottom: 200, left: 80 },
+          animated: true
+        }
       );
     },
-    [region.latitudeDelta]
+    [handleMarkerPress]
   );
 
   const handleCloseCard = useCallback(() => {
@@ -465,6 +495,128 @@ export default function MapScreen() {
     }
   }, [selectedId, handleCloseCard]);
 
+  // Przyciski +/- : skalujemy bieżący region (factor < 1 = przybliż, > 1 = oddal),
+  // z ograniczeniem żeby nie wyjść poza sensowny zakres zoomu.
+  const zoomBy = useCallback(
+    (factor: number) => {
+      const MIN_DELTA = 0.0025;
+      const MAX_DELTA = 0.6;
+      const clamp = (v: number) =>
+        Math.min(Math.max(v, MIN_DELTA), MAX_DELTA);
+      mapRef.current?.animateToRegion(
+        {
+          latitude: region.latitude,
+          longitude: region.longitude,
+          latitudeDelta: clamp(region.latitudeDelta * factor),
+          longitudeDelta: clamp(region.longitudeDelta * factor)
+        },
+        200
+      );
+    },
+    [region]
+  );
+
+  // Tapnięcie banera trasy → wróć do zakładki Planuj (gdzie powstała trasa).
+  const goToPlanner = useCallback(() => {
+    (navigation as any).navigate('PlannerTab');
+  }, [navigation]);
+
+  const startGuide = useCallback(() => {
+    if (!tour || tour.stops.length === 0) return;
+    setGuidePaused(false);
+    setGuideActive(true);
+    setGuideStep(0);
+  }, [tour]);
+
+  const stopGuideMode = useCallback(() => {
+    speakTokenRef.current++;
+    stopGuide();
+    setGuideActive(false);
+    setGuidePaused(false);
+  }, [stopGuide]);
+
+  const guideNext = useCallback(() => {
+    speakTokenRef.current++; // unieważnij onDone bieżącej wypowiedzi
+    stopGuide();
+    setGuideStep(s => s + 1);
+  }, [stopGuide]);
+
+  const guideTogglePause = useCallback(() => {
+    setGuidePaused(p => {
+      if (!p) {
+        speakTokenRef.current++;
+        stopGuide(); // pauza → zatrzymaj lektora
+      }
+      return !p;
+    });
+  }, [stopGuide]);
+
+  // Zakończenie trasy ma też zatrzymać spacer i lektora.
+  const handleEndTour = useCallback(() => {
+    speakTokenRef.current++;
+    stopGuide();
+    setGuideActive(false);
+    setGuidePaused(false);
+    endTour();
+  }, [stopGuide, endTour]);
+
+  // Sterowanie spacerem: dla bieżącego przystanku przeleć mapą, pokaż kartę i
+  // czytaj opis; po skończeniu (onDone) przejdź do następnego. Pauza wstrzymuje.
+  useEffect(() => {
+    if (!guideActive) return;
+
+    const stop = tour?.stops[guideStep];
+    if (!stop) {
+      // koniec trasy
+      setGuideActive(false);
+      setGuidePaused(false);
+      return;
+    }
+
+    mapRef.current?.animateToRegion(
+      {
+        latitude: stop.coordinate.latitude,
+        longitude: stop.coordinate.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005
+      },
+      700
+    );
+    setSelectedId(stop.id);
+    animateCard(true);
+
+    if (guidePaused) return;
+
+    const a = attractions.find(x => x.id === stop.id);
+    const text = a
+      ? `${a.title}. ${a.description}${
+          a.funFacts && a.funFacts.length > 0
+            ? '. Ciekawostka. ' + a.funFacts[0]
+            : ''
+        }`
+      : stop.title;
+
+    speakTokenRef.current++;
+    const myToken = speakTokenRef.current;
+    speakGuide(text, {
+      onDone: () => {
+        // Przesuń krok tylko gdy ta wypowiedź wciąż jest aktualna (nie została
+        // anulowana przez następny/pauzę/stop ani przez start kolejnej mowy).
+        if (speakTokenRef.current === myToken) {
+          setGuideStep(s => s + 1);
+        }
+      }
+    });
+  }, [
+    guideActive,
+    guideStep,
+    guidePaused,
+    tour,
+    attractions,
+    animateCard,
+    speakGuide
+  ]);
+
   const cardStyle = {
     opacity: cardAnim,
     transform: [
@@ -494,10 +646,10 @@ export default function MapScreen() {
             coordinate={cluster.coordinate}
             onPress={() => handleMarkerPress(cluster.id)}
             anchor={{ x: 0.5, y: 0.5 }}
-            tracksViewChanges={false}
+            tracksViewChanges={trackChanges}
             stopPropagation
           >
-            <IOSMarker category={it.category} hasModel={!!it.model} />
+            <IOSMarker category={it.category} />
           </Marker>
         );
       }
@@ -508,14 +660,14 @@ export default function MapScreen() {
           coordinate={cluster.coordinate}
           onPress={() => handleClusterPress(cluster)}
           anchor={{ x: 0.5, y: 0.5 }}
-          tracksViewChanges={false}
+          tracksViewChanges={trackChanges}
           stopPropagation
         >
           <IOSClusterMarker count={cluster.count} />
         </Marker>
       );
     });
-  }, [clusters, handleMarkerPress, handleClusterPress]);
+  }, [clusters, handleMarkerPress, handleClusterPress, trackChanges]);
 
   const renderAndroidMarkers = useCallback(() => {
     if (!mapReady) return null;
@@ -529,8 +681,8 @@ export default function MapScreen() {
             identifier={cluster.id}
             coordinate={cluster.coordinate}
             onPress={() => handleMarkerPress(cluster.id)}
-            pinColor={it.model ? '#4ADE80' : getCategoryColor(it.category)}
-            tracksViewChanges={false}
+            pinColor={getCategoryColor(it.category)}
+            tracksViewChanges={trackChanges}
           />
         );
       }
@@ -540,9 +692,9 @@ export default function MapScreen() {
           key={`android-${cluster.id}`}
           coordinate={cluster.coordinate}
           onPress={() => handleClusterPress(cluster)}
-          pinColor="#4ADE80"
+          pinColor={colors.mint}
           title={`${cluster.count} miejsc`}
-          tracksViewChanges={false}
+          tracksViewChanges={trackChanges}
         />
       );
     });
@@ -551,7 +703,8 @@ export default function MapScreen() {
     clusters,
     handleMarkerPress,
     handleClusterPress,
-    getCategoryColor
+    getCategoryColor,
+    trackChanges
   ]);
 
   // Tryb trasy: linia łącząca przystanki w kolejności + numerowane piny.
@@ -566,7 +719,7 @@ export default function MapScreen() {
         <Polyline
           key="tour-line"
           coordinates={routeCoords}
-          strokeColor="#4ADE80"
+          strokeColor={colors.mint}
           strokeWidth={5}
           lineCap="round"
           lineJoin="round"
@@ -581,7 +734,7 @@ export default function MapScreen() {
           identifier={`tour-${stop.id}`}
           coordinate={stop.coordinate}
           anchor={{ x: 0.5, y: 0.5 }}
-          tracksViewChanges={false}
+          tracksViewChanges={trackChanges}
           onPress={() => handleMarkerPress(stop.id)}
           zIndex={999}
         >
@@ -591,7 +744,7 @@ export default function MapScreen() {
     });
 
     return elements;
-  }, [tour, routeCoords, handleMarkerPress]);
+  }, [tour, routeCoords, handleMarkerPress, trackChanges]);
 
   return (
     <View style={styles.container}>
@@ -618,55 +771,120 @@ export default function MapScreen() {
           : renderIOSMarkers()}
       </MapView>
 
-      <View style={[styles.topBar, { top: insets.top - 25}]}>
+      <View style={[styles.topBar, { top: insets.top + 8 }]}>
         <View style={styles.statsPill}>
-          <Ionicons name="location" size={14} color="#4ADE80" />
-          <Text style={styles.statText}>{attractions.length} miejsc</Text>
-          <View style={styles.divider} />
-          <Ionicons name="cube-outline" size={14} color="#4ADE80" />
-          <Text style={styles.statText}>{arCount} AR</Text>
+          <Ionicons name="location" size={14} color={colors.mint} />
+          <Text style={styles.statText}>{attractions.length} miejsc Lublina</Text>
         </View>
         <TouchableOpacity
           style={styles.locationBtn}
           onPress={handleCenterOnUser}
           activeOpacity={0.7}
         >
-          <Ionicons name="navigate" size={18} color="#4ADE80" />
+          <Ionicons name="navigate" size={18} color={colors.mint} />
         </TouchableOpacity>
       </View>
 
       {tour && (
-        <View style={[styles.tourBanner, { top: insets.top + 35 }]}>
-          <View style={styles.tourBannerIcon}>
-            <Ionicons name="map" size={18} color="#0B3D2E" />
+        <>
+          <View style={[styles.tourBanner, { top: insets.top + 62 }]}>
+            <TouchableOpacity
+              style={styles.tourBannerMain}
+              onPress={goToPlanner}
+              activeOpacity={0.7}
+            >
+              <View style={styles.tourBannerIcon}>
+                <Ionicons name="map" size={18} color="#0B3D2E" />
+              </View>
+              <View style={styles.tourBannerInfo}>
+                <Text style={styles.tourBannerTitle}>Trasa zwiedzania</Text>
+                <Text style={styles.tourBannerSub}>
+                  {tour.stops.length} przystanków ·{' '}
+                  {formatRouteTime(tour.totalMinutes)} ·{' '}
+                  {formatRouteDistance(tour.totalMeters)}
+                </Text>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color="rgba(255,255,255,0.45)"
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.tourBannerClose}
+              onPress={handleEndTour}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close" size={18} color="#FFF" />
+            </TouchableOpacity>
           </View>
-          <View style={styles.tourBannerInfo}>
-            <Text style={styles.tourBannerTitle}>Trasa zwiedzania</Text>
-            <Text style={styles.tourBannerSub}>
-              {tour.stops.length} przystanków · {formatRouteTime(tour.totalMinutes)} ·{' '}
-              {formatRouteDistance(tour.totalMeters)}
-            </Text>
+
+          <View style={[styles.guideBar, { top: insets.top + 128 }]}>
+            {!guideActive ? (
+              <TouchableOpacity
+                style={styles.guideStartBtn}
+                onPress={startGuide}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="play" size={18} color="#0B3D2E" />
+                <Text style={styles.guideStartText}>Wirtualny spacer</Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <Text style={styles.guideProgress}>
+                  Przystanek {Math.min(guideStep + 1, tour.stops.length)}/
+                  {tour.stops.length}
+                </Text>
+                <View style={styles.guideControls}>
+                  <TouchableOpacity
+                    style={styles.guideCtrlBtn}
+                    onPress={guideTogglePause}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={guidePaused ? 'play' : 'pause'}
+                      size={18}
+                      color="#FFF"
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.guideCtrlBtn}
+                    onPress={guideNext}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="play-skip-forward" size={18} color="#FFF" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.guideCtrlBtn, styles.guideStopBtn]}
+                    onPress={stopGuideMode}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="stop" size={16} color="#FFF" />
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
-          <TouchableOpacity
-            style={styles.tourBannerClose}
-            onPress={endTour}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="close" size={18} color="#FFF" />
-          </TouchableOpacity>
-        </View>
+        </>
       )}
 
-      {!tour && clusters.some(c => c.count > 1) && !selectedId && (
-        <View style={[styles.zoomHint, { bottom: insets.bottom + 100 }]}>
-          <Ionicons
-            name="expand-outline"
-            size={16}
-            color="rgba(255,255,255,0.8)"
-          />
-          <Text style={styles.zoomHintText}>
-            Kliknij w klaster aby zobaczyć więcej
-          </Text>
+      {!isCardVisible && (
+        <View style={[styles.zoomControl, { bottom: insets.bottom + 110 }]}>
+          <TouchableOpacity
+            style={styles.zoomButton}
+            onPress={() => zoomBy(0.5)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add" size={26} color="#FFF" />
+          </TouchableOpacity>
+          <View style={styles.zoomDivider} />
+          <TouchableOpacity
+            style={styles.zoomButton}
+            onPress={() => zoomBy(2)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="remove" size={26} color="#FFF" />
+          </TouchableOpacity>
         </View>
       )}
 
@@ -708,7 +926,7 @@ export default function MapScreen() {
               <Ionicons
                 name={getCategoryIcon(selectedAttraction.category) as any}
                 size={20}
-                color="#000"
+                color={colors.white}
               />
             </View>
             <View style={styles.cardTitleWrap}>
@@ -716,7 +934,7 @@ export default function MapScreen() {
                 {selectedAttraction.title}
               </Text>
               <View style={styles.cardMeta}>
-                <Ionicons name="location" size={12} color="#4ADE80" />
+                <Ionicons name="location" size={12} color={colors.mint} />
                 <Text style={styles.cardLocation}>
                   {selectedAttraction.location}
                 </Text>
@@ -735,7 +953,7 @@ export default function MapScreen() {
               onPress={handleCloseCard}
               activeOpacity={0.7}
             >
-              <Ionicons name="close" size={18} color="rgba(255,255,255,0.6)" />
+              <Ionicons name="close" size={18} color={colors.inkFaint} />
             </TouchableOpacity>
           </View>
 
@@ -743,65 +961,17 @@ export default function MapScreen() {
             {selectedAttraction.description}
           </Text>
 
-          <View style={styles.features}>
-            {selectedAttraction.hasAR && (
-              <View style={[styles.featurePill, styles.arPill]}>
-                <Ionicons name="cube" size={12} color="#A78BFA" />
-                <Text style={[styles.featureText, { color: '#A78BFA' }]}>
-                  AR
-                </Text>
-              </View>
-            )}
-            {selectedAttraction.hasAudio && (
-              <View style={[styles.featurePill, styles.audioPill]}>
-                <Ionicons name="headset" size={12} color="#4ADE80" />
-                <Text style={[styles.featureText, { color: '#4ADE80' }]}>
-                  Audio
-                </Text>
-              </View>
-            )}
-            {selectedAttraction.hasAI && (
-              <View style={[styles.featurePill, styles.aiPill]}>
-                <Ionicons name="sparkles" size={12} color="#FBBF24" />
-                <Text style={[styles.featureText, { color: '#FBBF24' }]}>
-                  AI
-                </Text>
-              </View>
-            )}
-          </View>
-
           <View style={styles.buttons}>
-            {selectedAttraction.model && (
-              <TouchableOpacity
-                style={styles.arBtn}
-                onPress={() => setShowARModal(true)}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="cube" size={18} color="#000" />
-                <Text style={styles.arBtnText}>Zobacz w AR</Text>
-              </TouchableOpacity>
-            )}
             <TouchableOpacity
-              style={[
-                styles.detailsBtn,
-                !selectedAttraction.model && styles.btnFull
-              ]}
+              style={[styles.detailsBtn, styles.btnFull]}
               onPress={handleViewDetails}
-              activeOpacity={0.8}
+              activeOpacity={0.9}
             >
-              <Text style={styles.detailsBtnText}>Szczegóły</Text>
-              <Ionicons name="arrow-forward" size={18} color="#4ADE80" />
+              <Text style={styles.detailsBtnText}>Zobacz szczegóły</Text>
+              <Ionicons name="arrow-forward" size={18} color={colors.mint} />
             </TouchableOpacity>
           </View>
         </Animated.View>
-      )}
-
-      {selectedAttraction?.model && (
-        <ARViewModal
-          visible={showARModal}
-          attraction={selectedAttraction}
-          onClose={() => setShowARModal(false)}
-        />
       )}
     </View>
   );
@@ -827,7 +997,7 @@ const styles = StyleSheet.create({
   statsPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.9)',
+    backgroundColor: colors.forestDeep,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 20,
@@ -858,7 +1028,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.9)',
+    backgroundColor: colors.forestDeep,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
@@ -873,6 +1043,35 @@ const styles = StyleSheet.create({
       android: { elevation: 4 }
     })
   },
+  zoomControl: {
+    position: 'absolute',
+    right: 16,
+    backgroundColor: colors.forestDeep,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    overflow: 'hidden',
+    zIndex: 100,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 6
+      },
+      android: { elevation: 5 }
+    })
+  },
+  zoomButton: {
+    width: 46,
+    height: 46,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  zoomDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.15)'
+  },
   tourBanner: {
     position: 'absolute',
     left: 16,
@@ -880,12 +1079,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: 'rgba(0,0,0,0.92)',
+    backgroundColor: colors.forestDeep,
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(74,222,128,0.4)',
+    borderColor: 'rgba(55,208,138,0.45)',
     zIndex: 150,
     ...Platform.select({
       ios: {
@@ -901,7 +1100,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 12,
-    backgroundColor: '#4ADE80',
+    backgroundColor: colors.mint,
     justifyContent: 'center',
     alignItems: 'center'
   },
@@ -927,60 +1126,89 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center'
   },
-  zoomHint: {
-    position: 'absolute',
-    alignSelf: 'center',
+  tourBannerMain: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 25,
+    gap: 12
+  },
+  guideBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.forestDeep,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    zIndex: 100,
+    borderColor: 'rgba(255,255,255,0.12)',
+    zIndex: 150,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 4
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.35,
+        shadowRadius: 8
       },
-      android: { elevation: 4 }
+      android: { elevation: 7 }
     })
   },
-  zoomHintText: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 13,
-    fontWeight: '500'
+  guideStartBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.mint,
+    paddingVertical: 10,
+    borderRadius: 12
+  },
+  guideStartText: {
+    color: '#0B3D2E',
+    fontSize: 15,
+    fontWeight: '700'
+  },
+  guideProgress: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '700',
+    marginLeft: 8
+  },
+  guideControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  guideCtrlBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  guideStopBtn: {
+    backgroundColor: 'rgba(248,113,113,0.85)'
   },
   card: {
     position: 'absolute',
     left: 16,
     right: 16,
-    backgroundColor: 'rgba(0,0,0,0.95)',
-    borderRadius: 20,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
     padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
     zIndex: 200,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.5,
-        shadowRadius: 20
-      },
-      android: { elevation: 12 }
-    })
+    ...(shadow.lg as object)
   },
   cardBanner: {
     width: '100%',
-    height: 130,
-    borderRadius: 14,
-    marginBottom: 12,
-    backgroundColor: 'rgba(255,255,255,0.05)'
+    height: 132,
+    borderRadius: radii.md,
+    marginBottom: 14,
+    backgroundColor: colors.surfaceAlt
   },
   cardBannerPlaceholder: {
     justifyContent: 'center',
@@ -995,7 +1223,7 @@ const styles = StyleSheet.create({
   cardIcon: {
     width: 42,
     height: 42,
-    borderRadius: 12,
+    borderRadius: radii.md,
     justifyContent: 'center',
     alignItems: 'center'
   },
@@ -1003,9 +1231,9 @@ const styles = StyleSheet.create({
     flex: 1
   },
   cardTitle: {
+    fontFamily: font.bold,
     fontSize: 17,
-    fontWeight: '700',
-    color: '#FFF'
+    color: colors.ink
   },
   cardMeta: {
     flexDirection: 'row',
@@ -1014,93 +1242,52 @@ const styles = StyleSheet.create({
     marginTop: 3
   },
   cardLocation: {
-    fontSize: 12,
-    color: '#4ADE80',
-    fontWeight: '500'
+    fontSize: 13,
+    color: colors.forest,
+    fontFamily: font.bold
   },
   cardDot: {
-    color: 'rgba(255,255,255,0.3)',
+    color: colors.inkFaint,
     fontSize: 12
   },
   cardYear: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.5)'
+    color: colors.inkFaint,
+    fontFamily: font.regular
   },
   closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    width: 32,
+    height: 32,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceAlt,
     justifyContent: 'center',
     alignItems: 'center'
   },
   cardDesc: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.6)',
-    lineHeight: 19,
-    marginBottom: 12
-  },
-  features: {
-    flexDirection: 'row',
-    gap: 8,
+    fontSize: 14,
+    color: colors.inkSoft,
+    fontFamily: font.regular,
+    lineHeight: 21,
     marginBottom: 14
-  },
-  featurePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8
-  },
-  arPill: {
-    backgroundColor: 'rgba(139,92,246,0.2)'
-  },
-  audioPill: {
-    backgroundColor: 'rgba(74,222,128,0.2)'
-  },
-  aiPill: {
-    backgroundColor: 'rgba(251,191,36,0.2)'
-  },
-  featureText: {
-    fontSize: 11,
-    fontWeight: '600'
   },
   buttons: {
     flexDirection: 'row',
     gap: 10
-  },
-  arBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#4ADE80',
-    paddingVertical: 13,
-    borderRadius: 12
-  },
-  arBtnText: {
-    color: '#000',
-    fontSize: 14,
-    fontWeight: '700'
   },
   detailsBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    paddingVertical: 13,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(74,222,128,0.3)'
+    gap: 8,
+    backgroundColor: colors.forest,
+    paddingVertical: 14,
+    borderRadius: radii.md
   },
   detailsBtnText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '600'
+    color: colors.onForest,
+    fontSize: 15,
+    fontFamily: font.bold
   },
   btnFull: {
     flex: 1

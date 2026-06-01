@@ -15,10 +15,6 @@ export interface Attraction {
   funFacts: string[];
   openingHours?: string;
   price?: string;
-  mp3?: any;
-  model?: any;
-  hasAR: boolean;
-  hasAudio: boolean;
   hasAI: boolean;
 }
 
@@ -38,13 +34,13 @@ export const CATEGORY_ICONS: Record<CategoryType, string> = {
   'Zabytek techniki': 'cog-outline'
 };
 
-// Kolory kategorii
+// Kolory kategorii — stonowane, ziemiste, zharmonizowane z paletą Forest.
 export const CATEGORY_COLORS: Record<CategoryType, string> = {
-  Rzeźba: '#8B5CF6',
-  Architektura: '#3B82F6',
-  Sakralny: '#F59E0B',
-  Muzeum: '#EC4899',
-  'Zabytek techniki': '#10B981'
+  Rzeźba: '#B96A3C',
+  Architektura: '#4C6B8A',
+  Sakralny: '#C29A45',
+  Muzeum: '#9C5B78',
+  'Zabytek techniki': '#2F7D5C'
 };
 
 export const attractions: Attraction[] = [
@@ -65,10 +61,6 @@ export const attractions: Attraction[] = [
     ],
     openingHours: 'Wt-Nd: 9:00-16:00',
     price: '15 zł / 10 zł',
-    mp3: require('../../assets/audio/lucznik.mp3'),
-    model: require('../../assets/models/lucznik2.glb'),
-    hasAR: true,
-    hasAudio: true,
     hasAI: true
   },
   {
@@ -86,8 +78,6 @@ export const attractions: Attraction[] = [
       'Trąbka grana z wieży o godz. 12:00 to tradycja sięgająca XIX wieku.',
       'Brama przetrwała liczne oblężenia i pożary, zachowując gotycki charakter.'
     ],
-    hasAR: false,
-    hasAudio: false,
     hasAI: true
   },
   {
@@ -107,8 +97,6 @@ export const attractions: Attraction[] = [
       'Akustyczna Szeptucha — szept przy ścianie jest słyszalny po przeciwnej stronie nawy.'
     ],
     openingHours: 'Codziennie: 6:00-19:00',
-    hasAR: false,
-    hasAudio: false,
     hasAI: true
   },
   {
@@ -126,10 +114,6 @@ export const attractions: Attraction[] = [
       'Na fasadach kamienic zachowały się oryginalne renesansowe sgraffita i attyki.',
       'W średniowieczu Lublin był jednym z najważniejszych miast handlowych na szlaku wschód-zachód.'
     ],
-    model: require('../../assets/models/poczta.glb'),
-    mp3: require('../../assets/audio/poczta.mp3'),
-    hasAR: true,
-    hasAudio: true,
     hasAI: true
   },
   {
@@ -147,10 +131,6 @@ export const attractions: Attraction[] = [
       'Plac przeszedł gruntowną rewitalizację w 2017 roku za ponad 60 mln zł.',
       'To popularne miejsce spotkań mieszkańców i wydarzeń kulturalnych.'
     ],
-    mp3: require('../../assets/audio/wiezacisnien.mp3'),
-    model: require('../../assets/models/wieza.glb'),
-    hasAR: true,
-    hasAudio: true,
     hasAI: true
   },
   {
@@ -169,8 +149,6 @@ export const attractions: Attraction[] = [
       'Pod kościołem zachowały się gotyckie krypty z pochówkami zakonników.'
     ],
     openingHours: 'Codziennie: 6:00-19:00',
-    hasAR: false,
-    hasAudio: false,
     hasAI: true
   },
   {
@@ -189,8 +167,6 @@ export const attractions: Attraction[] = [
       'budynek stanął na miejscu dawnego ratusza miejskiego.'
     ],
     openingHours: 'Wt-Nd: 9:00-16:00',
-    hasAR: false,
-    hasAudio: false,
     hasAI: true
   },
   {
@@ -209,8 +185,6 @@ export const attractions: Attraction[] = [
       'Brama wielokrotnie zmieniała swój wygląd — obecna forma pochodzi z XVIII wieku.'
     ],
     openingHours: 'Pn-Pt: 9:00-17:00',
-    hasAR: false,
-    hasAudio: false,
     hasAI: true
   },
   {
@@ -228,8 +202,6 @@ export const attractions: Attraction[] = [
       'Unia Lubelska z 1569 roku stworzyła Rzeczpospolitą Obojga Narodów — jedno z największych państw Europy.',
       'Pomnik przetrwał zarówno zabory, jak i obie wojny światowe.'
     ],
-    hasAR: false,
-    hasAudio: false,
     hasAI: true
   },
   {
@@ -249,11 +221,6 @@ export const attractions: Attraction[] = [
       'Fasada budynku została zaprojektowana z myślą o grze światła i cienia.'
     ],
     openingHours: 'Pn-Nd: 10:00-20:00',
-    hasAR: false,
-    hasAudio: false,
     hasAI: true
   }
 ];
-
-export const getARCount = () => attractions.filter(a => a.model).length;
-export const getAudioCount = () => attractions.filter(a => a.hasAudio).length;

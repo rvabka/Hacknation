@@ -1,38 +1,30 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Platform,
   ActivityIndicator,
   Animated,
-  Easing,
-  Dimensions,
   Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
-import { useFonts } from 'expo-font';
 import {
   Attraction,
   CATEGORY_COLORS,
-  CATEGORY_ICONS
+  CategoryType
 } from '../data/attractions';
 import { useAttractions } from '../hooks/useAttractions';
 import { useTour } from '../context/TourContext';
+import { colors, space, radii, type, shadow, font } from '../theme';
 
-const { width, height } = Dimensions.get('window');
-const GRADIENT_SIZE = Math.sqrt(width * width + height * height) * 1.5;
-
-const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
-
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-const GEMINI_API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+// Wskazówki AI lecą przez Groq (model OpenAI gpt-oss) – ten sam, co czat.
+const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY;
+const GROQ_MODEL = process.env.EXPO_PUBLIC_GROQ_MODEL;
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 interface PlannedAttraction extends Attraction {
   estimatedTime: number;
@@ -58,7 +50,7 @@ const PACE_OPTIONS = [
   { label: 'Szybkie', value: 'fast', icon: 'flash-outline', multiplier: 0.7 },
   { label: 'Normalne', value: 'normal', icon: 'walk-outline', multiplier: 1 },
   { label: 'Spokojne', value: 'slow', icon: 'cafe-outline', multiplier: 1.3 }
-];
+] as const;
 
 const calculateDistance = (
   lat1: number,
@@ -67,133 +59,88 @@ const calculateDistance = (
   lon2: number
 ): number => {
   const R = 6371e3;
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
+  const f1 = (lat1 * Math.PI) / 180;
+  const f2 = (lat2 * Math.PI) / 180;
+  const df = ((lat2 - lat1) * Math.PI) / 180;
+  const dl = ((lon2 - lon1) * Math.PI) / 180;
   const a =
-    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c;
+    Math.sin(df / 2) * Math.sin(df / 2) +
+    Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-const estimateVisitTime = (attraction: Attraction): number => {
-  let baseTime = 15;
-
-  switch (attraction.category) {
+const estimateVisitTime = (a: Attraction): number => {
+  switch (a.category) {
     case 'Muzeum':
-      baseTime = 45;
-      break;
-    case 'Sakralny':
-      baseTime = 25;
-      break;
-    case 'Architektura':
-      baseTime = 20;
-      break;
-    case 'Rzeźba':
-      baseTime = 10;
-      break;
+      return 45;
     case 'Zabytek techniki':
-      baseTime = 30;
-      break;
+      return 30;
+    case 'Sakralny':
+      return 25;
+    case 'Architektura':
+      return 20;
+    case 'Rzeźba':
+      return 10;
+    default:
+      return 15;
   }
-
-  if (attraction.hasAR) baseTime += 10;
-  if (attraction.hasAudio) baseTime += 15;
-
-  return baseTime;
 };
 
-const calculateWalkingTime = (distanceMeters: number): number => {
-  const walkingSpeedMps = 5000 / 60;
-  return Math.ceil(distanceMeters / walkingSpeedMps);
-};
+const calculateWalkingTime = (meters: number): number =>
+  Math.ceil(meters / (5000 / 60));
 
 export default function PlannerScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { attractions } = useAttractions();
   const { startTour } = useTour();
-  const [fontsLoaded] = useFonts({
-    Kollektif: require('../../assets/fonts/Kollektif.ttf'),
-    'Kollektif-Bold': require('../../assets/fonts/Kollektif-Bold.ttf')
-  });
 
-  const [selectedTime, setSelectedTime] = useState<number>(120);
+  const [selectedTime, setSelectedTime] = useState(120);
   const [selectedPace, setSelectedPace] = useState<string>('normal');
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isGettingLocation, setIsGettingLocation] = useState(false);
+  const [gettingLocation, setGettingLocation] = useState(false);
   const [plannedRoute, setPlannedRoute] = useState<PlannedAttraction[] | null>(
     null
   );
   const [aiTips, setAiTips] = useState<string | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
 
-  const spinValue = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(0)).current;
-
+  const slide = useRef(new Animated.Value(0)).current;
   const categories = [...new Set(attractions.map(a => a.category))];
 
-  useEffect(() => {
-    Animated.loop(
-      Animated.timing(spinValue, {
-        toValue: 1,
-        duration: 15000,
-        easing: Easing.linear,
-        useNativeDriver: true
-      })
-    ).start();
-  }, []);
-
-  const spin = spinValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg']
-  });
-
   const getLocation = async () => {
-    setIsGettingLocation(true);
+    setGettingLocation(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(
-          'Brak dostępu',
-          'Włącz dostęp do lokalizacji, aby zaplanować trasę od Twojego miejsca'
-        );
         setUserLocation({ latitude: 51.2465, longitude: 22.5684 });
       } else {
-        const location = await Location.getCurrentPositionAsync({});
+        const loc = await Location.getCurrentPositionAsync({});
         setUserLocation({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude
         });
       }
-    } catch (error) {
+    } catch {
       setUserLocation({ latitude: 51.2465, longitude: 22.5684 });
     }
-    setIsGettingLocation(false);
+    setGettingLocation(false);
   };
 
   useEffect(() => {
     getLocation();
   }, []);
 
-  const toggleCategory = (category: string) => {
+  const toggleCategory = (c: string) =>
     setSelectedCategories(prev =>
-      prev.includes(category)
-        ? prev.filter(c => c !== category)
-        : [...prev, category]
+      prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]
     );
-  };
 
   const planRoute = async () => {
     if (!userLocation) {
-      Alert.alert('Błąd', 'Poczekaj na pobranie lokalizacji');
+      Alert.alert('Chwila', 'Poczekaj na pobranie lokalizacji.');
       return;
     }
-
     setIsLoading(true);
     setPlannedRoute(null);
     setAiTips(null);
@@ -203,84 +150,65 @@ export default function PlannerScreen({ navigation }: any) {
         PACE_OPTIONS.find(p => p.value === selectedPace)?.multiplier || 1;
       const availableTime = selectedTime;
 
-
-      let filteredAttractions =
+      const pool = (
         selectedCategories.length > 0
           ? attractions.filter(a => selectedCategories.includes(a.category))
-          : attractions;
-
-      let attractionsWithDistance = filteredAttractions.map(attraction => ({
-        ...attraction,
-        distance: calculateDistance(
-          userLocation.latitude,
-          userLocation.longitude,
-          attraction.coordinate.latitude,
-          attraction.coordinate.longitude
-        ),
-        estimatedTime: Math.round(
-          estimateVisitTime(attraction) * paceMultiplier
-        ),
+          : attractions
+      ).map(a => ({
+        ...a,
+        distance: 0,
+        estimatedTime: Math.round(estimateVisitTime(a) * paceMultiplier),
         walkingTime: 0,
         order: 0
       }));
 
       const planned: PlannedAttraction[] = [];
-      let currentLocation = userLocation;
+      let current = userLocation;
       let totalTime = 0;
-      let remainingAttractions = [...attractionsWithDistance];
+      let remaining = [...pool];
 
-      while (remainingAttractions.length > 0 && totalTime < availableTime) {
-        remainingAttractions = remainingAttractions.map(a => ({
-          ...a,
-          distance: calculateDistance(
-            currentLocation.latitude,
-            currentLocation.longitude,
-            a.coordinate.latitude,
-            a.coordinate.longitude
-          )
-        }));
+      while (remaining.length > 0 && totalTime < availableTime) {
+        remaining = remaining
+          .map(a => ({
+            ...a,
+            distance: calculateDistance(
+              current.latitude,
+              current.longitude,
+              a.coordinate.latitude,
+              a.coordinate.longitude
+            )
+          }))
+          .sort((a, b) => a.distance - b.distance);
 
-        remainingAttractions.sort((a, b) => a.distance - b.distance);
-
-        const nearest = remainingAttractions[0];
+        const nearest = remaining[0];
         const walkingTime = calculateWalkingTime(nearest.distance);
-        const totalTimeForThis = walkingTime + nearest.estimatedTime;
-
-        if (totalTime + totalTimeForThis <= availableTime) {
-          planned.push({
-            ...nearest,
-            walkingTime,
-            order: planned.length + 1
-          });
-
-          totalTime += totalTimeForThis;
-          currentLocation = {
-            latitude: nearest.coordinate.latitude,
-            longitude: nearest.coordinate.longitude
-          };
-          remainingAttractions = remainingAttractions.slice(1);
-        } else {
+        if (totalTime + walkingTime + nearest.estimatedTime > availableTime) {
           break;
         }
+        planned.push({ ...nearest, walkingTime, order: planned.length + 1 });
+        totalTime += walkingTime + nearest.estimatedTime;
+        current = {
+          latitude: nearest.coordinate.latitude,
+          longitude: nearest.coordinate.longitude
+        };
+        remaining = remaining.slice(1);
       }
 
       setPlannedRoute(planned);
-
-      Animated.spring(slideAnim, {
+      slide.setValue(0);
+      Animated.spring(slide, {
         toValue: 1,
         friction: 8,
         tension: 40,
         useNativeDriver: true
       }).start();
 
-      if (GEMINI_API_KEY && planned.length > 0) {
-        await getAITips(planned, availableTime, selectedPace);
+      if (GROQ_API_KEY && GROQ_MODEL && planned.length > 0) {
+        getAITips(planned, availableTime, selectedPace);
       }
-    } catch (error) {
-      console.error('Planning error:', error);
-      Alert.alert('Błąd', 'Nie udało się zaplanować trasy');
+    } catch {
+      Alert.alert('Błąd', 'Nie udało się zaplanować trasy.');
     }
-
     setIsLoading(false);
   };
 
@@ -290,432 +218,302 @@ export default function PlannerScreen({ navigation }: any) {
     pace: string
   ) => {
     try {
-      const routeDescription = route
-        .map(
-          (a, i) =>
-            `${i + 1}. ${a.title} (${a.category}) - ok. ${a.estimatedTime} min`
-        )
+      const desc = route
+        .map((a, i) => `${i + 1}. ${a.title} (${a.category})`)
         .join('\n');
-
-      const prompt = `Jesteś lokalnym przewodnikiem po Lublinie. Turysta ma ${time} minut na zwiedzanie w tempie "${pace}".
-Zaplanowana trasa:
-${routeDescription}
-
-Podaj 2-3 krótkie, praktyczne wskazówki dotyczące tej konkretnej trasy (np. gdzie zjeść po drodze, co dodatkowo zobaczyć w okolicy, najlepsze punkty na zdjęcia). Bądź konkretny i pomocny. Odpowiedz po polsku, maksymalnie 150 słów.`;
-
-      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+      const prompt = `Turysta ma ${time} minut, tempo "${pace}". Zaplanowana trasa:\n${desc}\n\nPodaj 2-3 krótkie, praktyczne wskazówki do TEJ trasy (gdzie zjeść po drodze, najlepsze punkty na zdjęcia, co dodatkowo zobaczyć w okolicy). Maks. 110 słów.`;
+      const res = await fetch(GROQ_API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 300
-          }
+          model: GROQ_MODEL,
+          reasoning_effort: 'low',
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Jesteś lokalnym przewodnikiem po Lublinie. Odpowiadasz po polsku, zwięźle i konkretnie, bez myślników.'
+            },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.7,
+          max_tokens: 700
         })
       });
-
-      const data = await response.json();
-      const tips = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (tips) {
-        setAiTips(tips);
-      }
-    } catch (error) {
-      console.log('AI tips error:', error);
+      const data = await res.json();
+      const tips = data.choices?.[0]?.message?.content;
+      if (tips && tips.trim()) setAiTips(tips.trim());
+    } catch {
+      /* ciche pominięcie wskazówek */
     }
   };
 
-  const getTotalTime = () => {
-    if (!plannedRoute) return 0;
-    return plannedRoute.reduce(
-      (sum, a) => sum + a.estimatedTime + a.walkingTime,
-      0
-    );
+  const totalMinutes = plannedRoute
+    ? plannedRoute.reduce((s, a) => s + a.estimatedTime + a.walkingTime, 0)
+    : 0;
+  const totalMeters = plannedRoute
+    ? plannedRoute.reduce((s, a) => s + a.distance, 0)
+    : 0;
+
+  const fmtTime = (m: number) =>
+    m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60 ? (m % 60) + 'm' : ''}`.trim();
+  const fmtDist = (m: number) =>
+    m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
+
+  const showRouteOnMap = () => {
+    if (!plannedRoute || plannedRoute.length === 0) return;
+    startTour({
+      stops: plannedRoute.map(a => ({
+        id: a.id,
+        title: a.title,
+        category: a.category,
+        coordinate: a.coordinate,
+        order: a.order
+      })),
+      start: userLocation,
+      totalMinutes,
+      totalMeters
+    });
+    navigation.navigate('MapTab');
   };
-
-  const getTotalDistance = () => {
-    if (!plannedRoute) return 0;
-    return plannedRoute.reduce((sum, a) => sum + a.distance, 0);
-  };
-
-  const formatDistance = (meters: number) => {
-    if (meters < 1000) return `${Math.round(meters)} m`;
-    return `${(meters / 1000).toFixed(1)} km`;
-  };
-
-  const formatTime = (minutes: number) => {
-    if (minutes < 60) return `${minutes} min`;
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return mins > 0 ? `${hours}h ${mins}min` : `${hours}h`;
-  };
-
-  if (!fontsLoaded) return null;
-
-  const bottomPadding = 70 + insets.bottom + 20;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.shimmerContainer}>
-        <AnimatedGradient
-          colors={[
-            '#efe8bd',
-            '#1B4D3E',
-            '#1B4D3E',
-            '#1B4D3E',
-            '#1B4D3E',
-            '#1B4D3E',
-            '#1B4D3E'
-          ]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={[styles.rotatingGradient, { transform: [{ rotate: spin }] }]}
-          pointerEvents="none"
-        />
-      </View>
-
+    <View style={styles.screen}>
       <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: bottomPadding }
-        ]}
+        contentContainerStyle={{
+          paddingHorizontal: space.xl,
+          paddingTop: insets.top + space.sm,
+          paddingBottom: insets.bottom + 96
+        }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.headerCard}>
-          <View style={styles.headerIcon}>
-            <Ionicons name="map-outline" size={28} color="#1B4D3E" />
-          </View>
-          <Text style={styles.headerTitle}>Zaplanuj zwiedzanie</Text>
-          <Text style={styles.headerSubtitle}>
-            Stwórz optymalną trasę dopasowaną do Twojego czasu
-          </Text>
-        </View>
+        <Text style={styles.h1}>Zaplanuj zwiedzanie</Text>
+        <Text style={styles.sub}>
+          Trasa AI dopasowana do Twojego czasu i tempa
+        </Text>
 
-        <View style={styles.locationCard}>
-          <View style={styles.locationHeader}>
-            <Ionicons
-              name={userLocation ? 'location' : 'location-outline'}
-              size={20}
-              color={userLocation ? '#4ADE80' : '#666'}
-            />
-            <Text style={styles.locationText}>
-              {isGettingLocation
-                ? 'Pobieranie lokalizacji...'
-                : userLocation
-                ? 'Lokalizacja pobrana'
-                : 'Brak lokalizacji'}
-            </Text>
-          </View>
-          {!userLocation && !isGettingLocation && (
-            <TouchableOpacity
-              style={styles.refreshButton}
-              onPress={getLocation}
-            >
-              <Ionicons name="refresh" size={18} color="#1B4D3E" />
+        {/* Lokalizacja */}
+        <View style={styles.locRow}>
+          <Ionicons
+            name={userLocation ? 'location' : 'location-outline'}
+            size={18}
+            color={userLocation ? colors.forest : colors.inkFaint}
+          />
+          <Text style={styles.locText}>
+            {gettingLocation
+              ? 'Pobieranie lokalizacji...'
+              : userLocation
+              ? 'Lokalizacja gotowa'
+              : 'Brak lokalizacji'}
+          </Text>
+          {!userLocation && !gettingLocation && (
+            <TouchableOpacity onPress={getLocation} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="refresh" size={18} color={colors.forest} />
             </TouchableOpacity>
           )}
         </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>
-            <Ionicons name="time-outline" size={18} color="#1B4D3E" /> Ile masz
-            czasu?
-          </Text>
-          <View style={styles.optionsRow}>
-            {TIME_OPTIONS.map(option => (
+        {/* Czas */}
+        <Text style={styles.label}>Ile masz czasu?</Text>
+        <View style={styles.wrapRow}>
+          {TIME_OPTIONS.map(o => {
+            const active = selectedTime === o.value;
+            return (
               <TouchableOpacity
-                key={option.value}
-                style={[
-                  styles.optionButton,
-                  selectedTime === option.value && styles.optionButtonActive
-                ]}
-                onPress={() => setSelectedTime(option.value)}
+                key={o.value}
+                style={[styles.timeChip, active && styles.timeChipActive]}
+                onPress={() => setSelectedTime(o.value)}
+                activeOpacity={0.85}
               >
                 <Text
-                  style={[
-                    styles.optionText,
-                    selectedTime === option.value && styles.optionTextActive
-                  ]}
+                  style={[styles.timeText, active && styles.timeTextActive]}
                 >
-                  {option.label}
+                  {o.label}
                 </Text>
               </TouchableOpacity>
-            ))}
-          </View>
+            );
+          })}
         </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>
-            <Ionicons name="speedometer-outline" size={18} color="#1B4D3E" />{' '}
-            Tempo zwiedzania
-          </Text>
-          <View style={styles.paceRow}>
-            {PACE_OPTIONS.map(option => (
+        {/* Tempo */}
+        <Text style={styles.label}>Tempo zwiedzania</Text>
+        <View style={styles.paceRow}>
+          {PACE_OPTIONS.map(o => {
+            const active = selectedPace === o.value;
+            return (
               <TouchableOpacity
-                key={option.value}
-                style={[
-                  styles.paceButton,
-                  selectedPace === option.value && styles.paceButtonActive
-                ]}
-                onPress={() => setSelectedPace(option.value)}
+                key={o.value}
+                style={[styles.paceBtn, active && styles.paceBtnActive]}
+                onPress={() => setSelectedPace(o.value)}
+                activeOpacity={0.85}
               >
                 <Ionicons
-                  name={option.icon as any}
-                  size={24}
-                  color={selectedPace === option.value ? '#1B4D3E' : '#666'}
+                  name={o.icon}
+                  size={22}
+                  color={active ? colors.forest : colors.inkFaint}
                 />
-                <Text
-                  style={[
-                    styles.paceText,
-                    selectedPace === option.value && styles.paceTextActive
-                  ]}
-                >
-                  {option.label}
+                <Text style={[styles.paceText, active && styles.paceTextActive]}>
+                  {o.label}
                 </Text>
               </TouchableOpacity>
-            ))}
-          </View>
+            );
+          })}
         </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>
-            <Ionicons name="filter-outline" size={18} color="#1B4D3E" />{' '}
-            Kategorie (opcjonalnie)
-          </Text>
-          <View style={styles.categoriesRow}>
-            {categories.map(category => (
+        {/* Kategorie */}
+        <Text style={styles.label}>Kategorie (opcjonalnie)</Text>
+        <View style={styles.wrapRow}>
+          {categories.map(c => {
+            const active = selectedCategories.includes(c);
+            const cat = CATEGORY_COLORS[c as CategoryType] ?? colors.forest;
+            return (
               <TouchableOpacity
-                key={category}
+                key={c}
                 style={[
-                  styles.categoryChip,
-                  selectedCategories.includes(category) && {
-                    backgroundColor:
-                      CATEGORY_COLORS[category as keyof typeof CATEGORY_COLORS],
-                    borderColor:
-                      CATEGORY_COLORS[category as keyof typeof CATEGORY_COLORS]
-                  }
+                  styles.catChip,
+                  active && { backgroundColor: cat, borderColor: cat }
                 ]}
-                onPress={() => toggleCategory(category)}
+                onPress={() => toggleCategory(c)}
+                activeOpacity={0.85}
               >
-                <Ionicons
-                  name={
-                    CATEGORY_ICONS[
-                      category as keyof typeof CATEGORY_ICONS
-                    ] as any
-                  }
-                  size={14}
-                  color={
-                    selectedCategories.includes(category) ? '#FFF' : '#666'
-                  }
-                />
                 <Text
-                  style={[
-                    styles.categoryChipText,
-                    selectedCategories.includes(category) &&
-                      styles.categoryChipTextActive
-                  ]}
+                  style={[styles.catText, active && styles.catTextActive]}
                 >
-                  {category}
+                  {c}
                 </Text>
               </TouchableOpacity>
-            ))}
-          </View>
+            );
+          })}
         </View>
 
+        {/* CTA */}
         <TouchableOpacity
-          style={[styles.planButton, isLoading && styles.planButtonDisabled]}
+          style={[styles.planBtn, isLoading && { opacity: 0.7 }]}
           onPress={planRoute}
           disabled={isLoading || !userLocation}
-          activeOpacity={0.8}
+          activeOpacity={0.9}
         >
           {isLoading ? (
-            <>
-              <ActivityIndicator size="small" color="#1B4D3E" />
-              <Text style={styles.planButtonText}>Planuję trasę...</Text>
-            </>
+            <ActivityIndicator size="small" color={colors.onForest} />
           ) : (
-            <>
-              <Ionicons name="sparkles" size={22} color="#1B4D3E" />
-              <Text style={styles.planButtonText}>Zaplanuj trasę z AI</Text>
-            </>
+            <Ionicons name="sparkles" size={20} color={colors.mint} />
           )}
+          <Text style={styles.planBtnText}>
+            {isLoading ? 'Planuję trasę...' : 'Zaplanuj trasę z AI'}
+          </Text>
         </TouchableOpacity>
 
+        {/* WYNIK */}
         {plannedRoute && plannedRoute.length > 0 && (
           <Animated.View
-            style={[
-              styles.resultsContainer,
-              {
-                opacity: slideAnim,
-                transform: [
-                  {
-                    translateY: slideAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [50, 0]
-                    })
-                  }
-                ]
-              }
-            ]}
+            style={{
+              opacity: slide,
+              transform: [
+                {
+                  translateY: slide.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [40, 0]
+                  })
+                }
+              ]
+            }}
           >
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryTitle}>Twoja trasa</Text>
-              <View style={styles.summaryStats}>
-                <View style={styles.summaryStat}>
-                  <Ionicons name="location" size={20} color="#4ADE80" />
-                  <Text style={styles.summaryValue}>{plannedRoute.length}</Text>
-                  <Text style={styles.summaryLabel}>miejsc</Text>
-                </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryStat}>
-                  <Ionicons name="time" size={20} color="#4ADE80" />
-                  <Text style={styles.summaryValue}>
-                    {formatTime(getTotalTime())}
-                  </Text>
-                  <Text style={styles.summaryLabel}>łącznie</Text>
-                </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryStat}>
-                  <Ionicons name="walk" size={20} color="#4ADE80" />
-                  <Text style={styles.summaryValue}>
-                    {formatDistance(getTotalDistance())}
-                  </Text>
-                  <Text style={styles.summaryLabel}>spacer</Text>
-                </View>
-              </View>
+            {/* Podsumowanie */}
+            <View style={styles.summary}>
+              <Stat value={String(plannedRoute.length)} label="miejsc" />
+              <View style={styles.summaryDivider} />
+              <Stat value={fmtTime(totalMinutes)} label="łącznie" />
+              <View style={styles.summaryDivider} />
+              <Stat value={fmtDist(totalMeters)} label="spacer" />
             </View>
 
+            {/* Wskazówki AI */}
             {aiTips && (
-              <View style={styles.tipsCard}>
-                <View style={styles.tipsHeader}>
-                  <Ionicons name="bulb" size={20} color="#FBBF24" />
-                  <Text style={styles.tipsTitle}>Wskazówki od AI</Text>
+              <View style={styles.tips}>
+                <View style={styles.tipsHead}>
+                  <Ionicons name="sparkles" size={16} color={colors.forest} />
+                  <Text style={styles.tipsTitle}>Wskazówki przewodnika</Text>
                 </View>
                 <Text style={styles.tipsText}>{aiTips}</Text>
               </View>
             )}
 
-            <View style={styles.timelineCard}>
-              <Text style={styles.timelineTitle}>Plan trasy</Text>
-              {plannedRoute.map((attraction, index) => (
-                <TouchableOpacity
-                  key={attraction.id}
-                  style={styles.timelineItem}
-                  onPress={() =>
-                    navigation.navigate('Details', {
-                      id: attraction.id,
-                      title: attraction.title,
-                      description: attraction.description,
-                      location: attraction.location
-                    })
-                  }
-                  activeOpacity={0.7}
-                >
-                  {index < plannedRoute.length - 1 && (
-                    <View style={styles.timelineLine} />
-                  )}
-
-                  <View
-                    style={[
-                      styles.orderBadge,
-                      {
-                        backgroundColor:
-                          CATEGORY_COLORS[
-                            attraction.category as keyof typeof CATEGORY_COLORS
-                          ]
-                      }
-                    ]}
+            {/* Oś trasy */}
+            <View style={styles.timeline}>
+              {plannedRoute.map((a, i) => {
+                const cat = CATEGORY_COLORS[a.category] ?? colors.forest;
+                const last = i === plannedRoute.length - 1;
+                return (
+                  <TouchableOpacity
+                    key={a.id}
+                    style={styles.stop}
+                    activeOpacity={0.7}
+                    onPress={() =>
+                      navigation.navigate('Details', {
+                        id: a.id,
+                        title: a.title,
+                        description: a.description,
+                        location: a.location
+                      })
+                    }
                   >
-                    <Text style={styles.orderNumber}>{attraction.order}</Text>
-                  </View>
-
-                  <View style={styles.timelineContent}>
-                    <View style={styles.timelineHeader}>
-                      <Text
-                        style={styles.timelineAttractionTitle}
-                        numberOfLines={1}
-                      >
-                        {attraction.title}
+                    {!last && <View style={styles.stopLine} />}
+                    <View style={[styles.stopBadge, { backgroundColor: cat }]}>
+                      <Text style={styles.stopBadgeText}>{a.order}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.stopTitle} numberOfLines={1}>
+                        {a.title}
                       </Text>
-                      <View style={styles.timelineFeatures}>
-                        {attraction.hasAR && (
-                          <View style={styles.miniFeature}>
-                            <Ionicons name="cube" size={10} color="#8B5CF6" />
-                          </View>
-                        )}
-                        {attraction.hasAudio && (
-                          <View style={styles.miniFeature}>
-                            <Ionicons
-                              name="headset"
-                              size={10}
-                              color="#4ADE80"
-                            />
-                          </View>
-                        )}
-                      </View>
-                    </View>
-
-                    <View style={styles.timelineDetails}>
-                      <View style={styles.timelineDetail}>
-                        <Ionicons name="walk-outline" size={12} color="#666" />
-                        <Text style={styles.timelineDetailText}>
-                          {attraction.walkingTime} min (
-                          {formatDistance(attraction.distance)})
+                      <View style={styles.stopMeta}>
+                        <Ionicons
+                          name="walk-outline"
+                          size={12}
+                          color={colors.inkFaint}
+                        />
+                        <Text style={styles.stopMetaText}>
+                          {a.walkingTime} min
                         </Text>
-                      </View>
-                      <View style={styles.timelineDetail}>
-                        <Ionicons name="time-outline" size={12} color="#666" />
-                        <Text style={styles.timelineDetailText}>
-                          ~{attraction.estimatedTime} min zwiedzania
+                        <Text style={styles.stopDot}>·</Text>
+                        <Ionicons
+                          name="time-outline"
+                          size={12}
+                          color={colors.inkFaint}
+                        />
+                        <Text style={styles.stopMetaText}>
+                          {a.estimatedTime} min zwiedzania
                         </Text>
                       </View>
                     </View>
-
-                    <Text style={styles.timelineCategory}>
-                      {attraction.category}
-                    </Text>
-                  </View>
-
-                  <Ionicons name="chevron-forward" size={20} color="#CCC" />
-                </TouchableOpacity>
-              ))}
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color={colors.inkFaint}
+                    />
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
             <TouchableOpacity
-              style={styles.startButton}
-              onPress={() => {
-                if (plannedRoute.length > 0) {
-                  startTour({
-                    stops: plannedRoute.map(a => ({
-                      id: a.id,
-                      title: a.title,
-                      category: a.category,
-                      coordinate: a.coordinate,
-                      order: a.order
-                    })),
-                    start: userLocation,
-                    totalMinutes: getTotalTime(),
-                    totalMeters: getTotalDistance()
-                  });
-                  navigation.navigate('MapTab');
-                }
-              }}
-              activeOpacity={0.8}
+              style={styles.mapBtn}
+              onPress={showRouteOnMap}
+              activeOpacity={0.9}
             >
-              <Ionicons name="map" size={22} color="#FFF" />
-              <Text style={styles.startButtonText}>Pokaż trasę na mapie</Text>
+              <Ionicons name="map" size={20} color={colors.onForest} />
+              <Text style={styles.mapBtnText}>Pokaż trasę na mapie</Text>
             </TouchableOpacity>
           </Animated.View>
         )}
 
-        {/* Empty state */}
         {plannedRoute && plannedRoute.length === 0 && (
-          <View style={styles.emptyState}>
-            <Ionicons name="sad-outline" size={48} color="#CCC" />
-            <Text style={styles.emptyTitle}>Brak atrakcji do pokazania</Text>
-            <Text style={styles.emptySubtitle}>
-              Spróbuj zwiększyć czas lub zmienić filtry kategorii
+          <View style={styles.empty}>
+            <Ionicons name="time-outline" size={40} color={colors.inkFaint} />
+            <Text style={styles.emptyText}>
+              Za mało czasu na pełny przystanek. Zwiększ czas lub zmień filtry.
             </Text>
           </View>
         )}
@@ -724,425 +522,158 @@ Podaj 2-3 krótkie, praktyczne wskazówki dotyczące tej konkretnej trasy (np. g
   );
 }
 
+function Stat({ value, label }: { value: string; label: string }) {
+  return (
+    <View style={styles.stat}>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5'
-  },
-  shimmerContainer: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 0
-  },
-  rotatingGradient: {
-    width: GRADIENT_SIZE,
-    height: GRADIENT_SIZE,
-    position: 'absolute'
-  },
-  scrollView: {
-    flex: 1,
-    zIndex: 1
-  },
-  scrollContent: {
-    padding: 20
-  },
-  headerCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 20,
-    padding: 24,
-    alignItems: 'center',
-    marginBottom: 16,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8
-      },
-      android: { elevation: 4 }
-    })
-  },
-  headerIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#E8F5E9',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12
-  },
-  headerTitle: {
-    fontSize: 22,
-    fontFamily: 'Kollektif-Bold',
-    color: '#1B4D3E',
-    marginBottom: 8
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    fontFamily: 'Kollektif',
-    color: '#666',
-    textAlign: 'center'
-  },
-  locationCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 12,
-    padding: 14,
+  screen: { flex: 1, backgroundColor: colors.bg },
+  h1: { ...type.display },
+  sub: { ...type.body, marginTop: space.xs, marginBottom: space.xl },
+
+  locRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 4
-      },
-      android: { elevation: 2 }
-    })
+    gap: space.sm,
+    backgroundColor: colors.surface,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderRadius: radii.md,
+    ...shadow.sm
   },
-  locationHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
-  },
-  locationText: {
-    fontSize: 14,
-    fontFamily: 'Kollektif',
-    color: '#333'
-  },
-  refreshButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#E8F5E9',
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  sectionCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 4
-      },
-      android: { elevation: 2 }
-    })
-  },
-  sectionTitle: {
+  locText: { flex: 1, fontFamily: font.bold, fontSize: 14, color: colors.ink },
+
+  label: {
+    ...type.heading,
     fontSize: 16,
-    fontFamily: 'Kollektif-Bold',
-    color: '#1B4D3E',
-    marginBottom: 14
+    marginTop: space['2xl'],
+    marginBottom: space.md
   },
-  optionsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10
-  },
-  optionButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: '#F5F5F5',
-    borderWidth: 2,
-    borderColor: 'transparent'
-  },
-  optionButtonActive: {
-    backgroundColor: '#E8F5E9',
-    borderColor: '#1B4D3E'
-  },
-  optionText: {
-    fontSize: 14,
-    fontFamily: 'Kollektif',
-    color: '#666'
-  },
-  optionTextActive: {
-    fontFamily: 'Kollektif-Bold',
-    color: '#1B4D3E'
-  },
-  paceRow: {
-    flexDirection: 'row',
-    gap: 12
-  },
-  paceButton: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 14,
-    backgroundColor: '#F5F5F5',
-    alignItems: 'center',
-    gap: 6,
-    borderWidth: 2,
-    borderColor: 'transparent'
-  },
-  paceButtonActive: {
-    backgroundColor: '#E8F5E9',
-    borderColor: '#1B4D3E'
-  },
-  paceText: {
-    fontSize: 12,
-    fontFamily: 'Kollektif',
-    color: '#666'
-  },
-  paceTextActive: {
-    fontFamily: 'Kollektif-Bold',
-    color: '#1B4D3E'
-  },
-  categoriesRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10
-  },
-  categoryChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#F5F5F5',
+  wrapRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+
+  timeChip: {
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#E0E0E0'
+    borderColor: colors.line
   },
-  categoryChipText: {
-    fontSize: 12,
-    fontFamily: 'Kollektif',
-    color: '#666'
+  timeChipActive: { backgroundColor: colors.forest, borderColor: colors.forest },
+  timeText: { fontFamily: font.bold, fontSize: 14, color: colors.inkSoft },
+  timeTextActive: { color: colors.onForest },
+
+  paceRow: { flexDirection: 'row', gap: space.md },
+  paceBtn: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: space.lg,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.line
   },
-  categoryChipTextActive: {
-    color: '#FFF',
-    fontFamily: 'Kollektif-Bold'
+  paceBtnActive: { backgroundColor: colors.mintWash, borderColor: colors.forest },
+  paceText: { fontFamily: font.regular, fontSize: 13, color: colors.inkFaint },
+  paceTextActive: { fontFamily: font.bold, color: colors.forest },
+
+  catChip: {
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line
   },
-  planButton: {
-    backgroundColor: '#4ADE80',
-    borderRadius: 16,
-    paddingVertical: 18,
+  catText: { fontFamily: font.bold, fontSize: 13, color: colors.inkSoft },
+  catTextActive: { color: colors.white },
+
+  planBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    marginBottom: 20,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#4ADE80',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8
-      },
-      android: { elevation: 4 }
-    })
+    gap: space.sm,
+    backgroundColor: colors.forest,
+    paddingVertical: space.lg + 2,
+    borderRadius: radii.md,
+    marginTop: space['2xl'],
+    ...shadow.md
   },
-  planButtonDisabled: {
-    backgroundColor: '#A5D6A7'
-  },
-  planButtonText: {
-    fontSize: 16,
-    fontFamily: 'Kollektif-Bold',
-    color: '#1B4D3E'
-  },
-  resultsContainer: {
-    marginTop: 8
-  },
-  summaryCard: {
-    backgroundColor: '#1B4D3E',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16
-  },
-  summaryTitle: {
-    fontSize: 18,
-    fontFamily: 'Kollektif-Bold',
-    color: '#FFF',
-    textAlign: 'center',
-    marginBottom: 16
-  },
-  summaryStats: {
+  planBtnText: { fontFamily: font.bold, fontSize: 16, color: colors.onForest },
+
+  summary: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around'
+    justifyContent: 'space-around',
+    backgroundColor: colors.forest,
+    borderRadius: radii.lg,
+    paddingVertical: space.xl,
+    marginTop: space['2xl']
   },
-  summaryStat: {
-    alignItems: 'center',
-    gap: 4
+  stat: { alignItems: 'center', gap: 2 },
+  statValue: { fontFamily: font.bold, fontSize: 19, color: colors.mint },
+  statLabel: { fontFamily: font.regular, fontSize: 12, color: colors.onForestSoft },
+  summaryDivider: { width: 1, height: 36, backgroundColor: colors.lineOnForest },
+
+  tips: {
+    backgroundColor: colors.mintWash,
+    borderRadius: radii.md,
+    padding: space.lg,
+    marginTop: space.lg
   },
-  summaryValue: {
-    fontSize: 20,
-    fontFamily: 'Kollektif-Bold',
-    color: '#FFF'
+  tipsHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: space.sm },
+  tipsTitle: { fontFamily: font.bold, fontSize: 14, color: colors.forest },
+  tipsText: { fontFamily: font.regular, fontSize: 14, lineHeight: 21, color: colors.ink },
+
+  timeline: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    padding: space.lg,
+    marginTop: space.lg,
+    ...shadow.sm
   },
-  summaryLabel: {
-    fontSize: 12,
-    fontFamily: 'Kollektif',
-    color: 'rgba(255,255,255,0.7)'
-  },
-  summaryDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: 'rgba(255,255,255,0.2)'
-  },
-  tipsCard: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16
-  },
-  tipsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 10
-  },
-  tipsTitle: {
-    fontSize: 14,
-    fontFamily: 'Kollektif-Bold',
-    color: '#92400E'
-  },
-  tipsText: {
-    fontSize: 13,
-    fontFamily: 'Kollektif',
-    color: '#78350F',
-    lineHeight: 20
-  },
-  timelineCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8
-      },
-      android: { elevation: 4 }
-    })
-  },
-  timelineTitle: {
-    fontSize: 16,
-    fontFamily: 'Kollektif-Bold',
-    color: '#1B4D3E',
-    marginBottom: 16
-  },
-  timelineItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    position: 'relative'
-  },
-  timelineLine: {
+  stop: { flexDirection: 'row', alignItems: 'center', paddingVertical: space.md },
+  stopLine: {
     position: 'absolute',
-    left: 18,
-    top: 48,
-    bottom: -12,
+    left: 17,
+    top: 42,
+    bottom: -space.md,
     width: 2,
-    backgroundColor: '#E0E0E0'
+    backgroundColor: colors.line
   },
-  orderBadge: {
+  stopBadge: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: radii.pill,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 14
+    marginRight: space.md
   },
-  orderNumber: {
-    fontSize: 16,
-    fontFamily: 'Kollektif-Bold',
-    color: '#FFF'
-  },
-  timelineContent: {
-    flex: 1
-  },
-  timelineHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4
-  },
-  timelineAttractionTitle: {
-    fontSize: 15,
-    fontFamily: 'Kollektif-Bold',
-    color: '#333',
-    flex: 1,
-    marginRight: 8
-  },
-  timelineFeatures: {
-    flexDirection: 'row',
-    gap: 6
-  },
-  miniFeature: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#F5F5F5',
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  timelineDetails: {
-    flexDirection: 'row',
-    gap: 16,
-    marginBottom: 4
-  },
-  timelineDetail: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4
-  },
-  timelineDetailText: {
-    fontSize: 11,
-    fontFamily: 'Kollektif',
-    color: '#666'
-  },
-  timelineCategory: {
-    fontSize: 11,
-    fontFamily: 'Kollektif',
-    color: '#999'
-  },
-  startButton: {
-    backgroundColor: '#1B4D3E',
-    borderRadius: 16,
-    paddingVertical: 18,
+  stopBadgeText: { fontFamily: font.bold, fontSize: 15, color: colors.white },
+  stopTitle: { fontFamily: font.bold, fontSize: 15, color: colors.ink },
+  stopMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+  stopMetaText: { fontFamily: font.regular, fontSize: 11.5, color: colors.inkFaint },
+  stopDot: { color: colors.inkFaint, marginHorizontal: 2 },
+
+  mapBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#1B4D3E',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8
-      },
-      android: { elevation: 4 }
-    })
+    gap: space.sm,
+    backgroundColor: colors.forest,
+    paddingVertical: space.lg + 2,
+    borderRadius: radii.md,
+    marginTop: space.lg,
+    ...shadow.md
   },
-  startButtonText: {
-    fontSize: 16,
-    fontFamily: 'Kollektif-Bold',
-    color: '#FFF'
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 40
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontFamily: 'Kollektif-Bold',
-    color: '#666',
-    marginTop: 16,
-    marginBottom: 8
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    fontFamily: 'Kollektif',
-    color: '#999',
-    textAlign: 'center'
-  }
+  mapBtnText: { fontFamily: font.bold, fontSize: 16, color: colors.onForest },
+
+  empty: { alignItems: 'center', gap: space.md, paddingVertical: space['3xl'] },
+  emptyText: { ...type.body, textAlign: 'center', maxWidth: 280 }
 });

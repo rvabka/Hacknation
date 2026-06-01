@@ -194,6 +194,7 @@ WAŻNE ZASADY:
         },
         body: JSON.stringify({
           model: GROQ_MODEL,
+          reasoning_effort: 'low',
           messages: [
             {
               role: 'system',
@@ -205,7 +206,7 @@ WAŻNE ZASADY:
             }
           ],
           temperature: 0.7,
-          max_tokens: 400,
+          max_tokens: 800,
           top_p: 0.8
         })
       });
@@ -323,7 +324,7 @@ WAŻNE ZASADY:
                             <Ionicons
                               name="chatbubbles-outline"
                               size={32}
-                              color="#4ADE80"
+                              color="#37D08A"
                             />
                           </View>
                           <Text style={styles.emptyTitle}>Witaj! 👋</Text>
@@ -341,7 +342,7 @@ WAŻNE ZASADY:
                                 <Ionicons
                                   name="chatbubble-outline"
                                   size={14}
-                                  color="#4ADE80"
+                                  color="#37D08A"
                                 />
                                 <Text
                                   style={styles.suggestionText}
@@ -395,7 +396,7 @@ WAŻNE ZASADY:
                               <View style={styles.loadingDots}>
                                 <ActivityIndicator
                                   size="small"
-                                  color="#4ADE80"
+                                  color="#37D08A"
                                 />
                                 <Text style={styles.loadingText}>Myślę...</Text>
                               </View>
@@ -506,7 +507,7 @@ const styles = StyleSheet.create({
   },
   blurContainer: {
     paddingTop: 12,
-    backgroundColor: '#101714'
+    backgroundColor: '#0C271C'
   },
   handle: {
     width: 40,
@@ -528,7 +529,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#4ADE80',
+    backgroundColor: '#37D08A',
     justifyContent: 'center',
     alignItems: 'center'
   },
@@ -558,7 +559,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: 'rgba(74, 222, 128, 0.15)',
+    backgroundColor: 'rgba(55,208,138, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16
@@ -588,7 +589,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(74, 222, 128, 0.25)'
+    borderColor: 'rgba(55,208,138, 0.25)'
   },
   suggestionText: {
     flex: 1,
@@ -613,7 +614,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#4ADE80',
+    backgroundColor: '#37D08A',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 8
@@ -645,15 +646,15 @@ const styles = StyleSheet.create({
     marginBottom: 10
   },
   quickSuggestionChip: {
-    backgroundColor: 'rgba(74, 222, 128, 0.12)',
+    backgroundColor: 'rgba(55,208,138, 0.12)',
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 20,
     marginRight: 8,
     borderWidth: 1,
-    borderColor: 'rgba(74, 222, 128, 0.25)'
+    borderColor: 'rgba(55,208,138, 0.25)'
   },
-  quickSuggestionText: { fontSize: 13, color: '#4ADE80', fontWeight: '500' },
+  quickSuggestionText: { fontSize: 13, color: '#37D08A', fontWeight: '500' },
   inputContainer: {
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -681,9 +682,9 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#4ADE80',
+    backgroundColor: '#37D08A',
     justifyContent: 'center',
     alignItems: 'center'
   },
-  sendButtonDisabled: { backgroundColor: 'rgba(74, 222, 128, 0.3)' }
+  sendButtonDisabled: { backgroundColor: 'rgba(55,208,138, 0.3)' }
 });
