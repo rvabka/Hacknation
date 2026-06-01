@@ -51,7 +51,8 @@
           "locationAlwaysAndWhenInUsePermission": "Zezwól aplikacji Lublin Mobile na dostęp do Twojej lokalizacji."
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "expo-font"
     ]
   }
 }
