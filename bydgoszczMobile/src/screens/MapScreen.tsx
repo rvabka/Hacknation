@@ -15,12 +15,18 @@ import {
   Easing,
   Image
 } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
+import MapView, {
+  Marker,
+  Polyline,
+  PROVIDER_GOOGLE,
+  Region
+} from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import ARViewModal from '../components/ARViewModal';
 import { useAppNavigation } from '../hooks/useAppNavigation';
+import { useTour } from '../context/TourContext';
 import {
   CATEGORY_ICONS,
   CATEGORY_COLORS
@@ -41,6 +47,23 @@ const SELECTED_ZOOM = 0.008;
 // po jednym przybliżeniu od domyślnego widoku (0.03) wpadamy poniżej progu
 // i wszystkie markery są widoczne pojedynczo.
 const INDIVIDUAL_ZOOM_THRESHOLD = 0.012;
+
+// Dyskretyzacja poziomu zoomu na potrzeby klastrowania.
+// MapKit zwraca lekko różne latitudeDelta przy samym PRZESUWANIU mapy (projekcja
+// Mercatora – ten sam ekran obejmuje inny zakres szerokości na różnych
+// szerokościach geograficznych – plus jitter silnika). Gdy siatka klastrów liczona
+// jest wprost z latitudeDelta, te mikrozmiany przesuwają granice komórek, markery
+// przeskakują między komórkami, zmieniają się id klastrów i markery się
+// przemontowują → klastry "znikają"/skaczą podczas panningu.
+// Kubełkujemy zoom w stałe poziomy (1/3 oktawy): przesuwanie nie zmienia poziomu,
+// więc siatka i klastry są stabilne. Przeliczamy dopiero przy realnej zmianie zoomu.
+function zoomBucket(latitudeDelta: number): number {
+  return Math.round(Math.log2(latitudeDelta) * 3);
+}
+
+function deltaFromBucket(bucket: number): number {
+  return Math.pow(2, bucket / 3);
+}
 
 interface Cluster {
   id: string;
@@ -197,13 +220,42 @@ const iosStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '500',
     marginTop: -2
+  },
+  routeMarker: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#4ADE80',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#FFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4
+  },
+  routeMarkerText: {
+    color: '#0B3D2E',
+    fontSize: 15,
+    fontWeight: '800'
   }
 });
+
+const RouteStopMarkerView = React.memo(
+  ({ order }: { order: number }) => (
+    <View style={iosStyles.routeMarker}>
+      <Text style={iosStyles.routeMarkerText}>{order}</Text>
+    </View>
+  ),
+  () => true
+);
 
 export default function MapScreen() {
   const navigation = useAppNavigation();
   const insets = useSafeAreaInsets();
   const { attractions } = useAttractions();
+  const { tour, endTour } = useTour();
   const arCount = useMemo(
     () => attractions.filter(a => a.model || a.hasAR).length,
     [attractions]
@@ -226,10 +278,41 @@ export default function MapScreen() {
     [selectedId, attractions]
   );
 
+  // Klastrujemy względem zdyskretyzowanego poziomu zoomu, nie surowego
+  // latitudeDelta – dzięki temu samo przesuwanie mapy (które delikatnie zmienia
+  // latitudeDelta) nie przelicza siatki i klastry zostają stabilne.
+  const clusterBucket = zoomBucket(region.latitudeDelta);
   const clusters = useMemo(
-    () => buildClusters(attractions, region.latitudeDelta),
-    [attractions, region.latitudeDelta]
+    () => buildClusters(attractions, deltaFromBucket(clusterBucket)),
+    [attractions, clusterBucket]
   );
+
+  // Współrzędne linii trasy: pozycja startowa (użytkownik) → kolejne przystanki.
+  const routeCoords = useMemo(() => {
+    if (!tour) return [];
+    const coords = tour.stops.map(s => s.coordinate);
+    return tour.start ? [tour.start, ...coords] : coords;
+  }, [tour]);
+
+  // Po włączeniu trasy dopasuj kadr mapy tak, by zmieściła się cała trasa.
+  useEffect(() => {
+    if (tour && mapReady && routeCoords.length >= 2) {
+      mapRef.current?.fitToCoordinates(routeCoords, {
+        edgePadding: { top: 160, right: 60, bottom: 220, left: 60 },
+        animated: true
+      });
+    }
+  }, [tour, mapReady, routeCoords]);
+
+  const formatRouteTime = (minutes: number) => {
+    if (minutes < 60) return `${minutes} min`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m > 0 ? `${h}h ${m}min` : `${h}h`;
+  };
+
+  const formatRouteDistance = (meters: number) =>
+    meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`;
 
   const getCategoryIcon = useCallback(
     (category: string) =>
@@ -471,6 +554,45 @@ export default function MapScreen() {
     getCategoryColor
   ]);
 
+  // Tryb trasy: linia łącząca przystanki w kolejności + numerowane piny.
+  // Zwracamy płaską tablicę elementów (nie fragment) – react-native-maps
+  // czyta dzieci MapView jako listę i tak jest najbezpieczniej.
+  const renderTour = useCallback(() => {
+    if (!tour) return null;
+    const elements: React.ReactNode[] = [];
+
+    if (routeCoords.length >= 2) {
+      elements.push(
+        <Polyline
+          key="tour-line"
+          coordinates={routeCoords}
+          strokeColor="#4ADE80"
+          strokeWidth={5}
+          lineCap="round"
+          lineJoin="round"
+        />
+      );
+    }
+
+    tour.stops.forEach(stop => {
+      elements.push(
+        <Marker
+          key={`tour-${stop.id}`}
+          identifier={`tour-${stop.id}`}
+          coordinate={stop.coordinate}
+          anchor={{ x: 0.5, y: 0.5 }}
+          tracksViewChanges={false}
+          onPress={() => handleMarkerPress(stop.id)}
+          zIndex={999}
+        >
+          <RouteStopMarkerView order={stop.order} />
+        </Marker>
+      );
+    });
+
+    return elements;
+  }, [tour, routeCoords, handleMarkerPress]);
+
   return (
     <View style={styles.container}>
       <MapView
@@ -489,7 +611,11 @@ export default function MapScreen() {
         moveOnMarkerPress={false}
         toolbarEnabled={false}
       >
-        {isAndroid ? renderAndroidMarkers() : renderIOSMarkers()}
+        {tour
+          ? renderTour()
+          : isAndroid
+          ? renderAndroidMarkers()
+          : renderIOSMarkers()}
       </MapView>
 
       <View style={[styles.topBar, { top: insets.top - 25}]}>
@@ -509,7 +635,29 @@ export default function MapScreen() {
         </TouchableOpacity>
       </View>
 
-      {clusters.some(c => c.count > 1) && !selectedId && (
+      {tour && (
+        <View style={[styles.tourBanner, { top: insets.top + 35 }]}>
+          <View style={styles.tourBannerIcon}>
+            <Ionicons name="map" size={18} color="#0B3D2E" />
+          </View>
+          <View style={styles.tourBannerInfo}>
+            <Text style={styles.tourBannerTitle}>Trasa zwiedzania</Text>
+            <Text style={styles.tourBannerSub}>
+              {tour.stops.length} przystanków · {formatRouteTime(tour.totalMinutes)} ·{' '}
+              {formatRouteDistance(tour.totalMeters)}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.tourBannerClose}
+            onPress={endTour}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="close" size={18} color="#FFF" />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {!tour && clusters.some(c => c.count > 1) && !selectedId && (
         <View style={[styles.zoomHint, { bottom: insets.bottom + 100 }]}>
           <Ionicons
             name="expand-outline"
@@ -724,6 +872,60 @@ const styles = StyleSheet.create({
       },
       android: { elevation: 4 }
     })
+  },
+  tourBanner: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(74,222,128,0.4)',
+    zIndex: 150,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 10
+      },
+      android: { elevation: 8 }
+    })
+  },
+  tourBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#4ADE80',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  tourBannerInfo: {
+    flex: 1
+  },
+  tourBannerTitle: {
+    color: '#FFF',
+    fontSize: 15,
+    fontWeight: '700'
+  },
+  tourBannerSub: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 2
+  },
+  tourBannerClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   zoomHint: {
     position: 'absolute',

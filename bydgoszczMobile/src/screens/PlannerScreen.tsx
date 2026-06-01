@@ -23,6 +23,7 @@ import {
   CATEGORY_ICONS
 } from '../data/attractions';
 import { useAttractions } from '../hooks/useAttractions';
+import { useTour } from '../context/TourContext';
 
 const { width, height } = Dimensions.get('window');
 const GRADIENT_SIZE = Math.sqrt(width * width + height * height) * 1.5;
@@ -114,6 +115,7 @@ const calculateWalkingTime = (distanceMeters: number): number => {
 export default function PlannerScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { attractions } = useAttractions();
+  const { startTour } = useTour();
   const [fontsLoaded] = useFonts({
     Kollektif: require('../../assets/fonts/Kollektif.ttf'),
     'Kollektif-Bold': require('../../assets/fonts/Kollektif-Bold.ttf')
@@ -684,18 +686,25 @@ Podaj 2-3 krótkie, praktyczne wskazówki dotyczące tej konkretnej trasy (np. g
               style={styles.startButton}
               onPress={() => {
                 if (plannedRoute.length > 0) {
-                  navigation.navigate('Details', {
-                    id: plannedRoute[0].id,
-                    title: plannedRoute[0].title,
-                    description: plannedRoute[0].description,
-                    location: plannedRoute[0].location
+                  startTour({
+                    stops: plannedRoute.map(a => ({
+                      id: a.id,
+                      title: a.title,
+                      category: a.category,
+                      coordinate: a.coordinate,
+                      order: a.order
+                    })),
+                    start: userLocation,
+                    totalMinutes: getTotalTime(),
+                    totalMeters: getTotalDistance()
                   });
+                  navigation.navigate('MapTab');
                 }
               }}
               activeOpacity={0.8}
             >
-              <Ionicons name="navigate" size={22} color="#FFF" />
-              <Text style={styles.startButtonText}>Rozpocznij zwiedzanie</Text>
+              <Ionicons name="map" size={22} color="#FFF" />
+              <Text style={styles.startButtonText}>Pokaż trasę na mapie</Text>
             </TouchableOpacity>
           </Animated.View>
         )}

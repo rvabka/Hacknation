@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFonts } from 'expo-font';
 import AppNavigator from './src/navigation/AppNavigator';
 import SplashScreen from './src/navigation/SplashScreen';
+import { TourProvider } from './src/context/TourContext';
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
@@ -34,7 +35,9 @@ export default function App() {
     <SafeAreaProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <NavigationContainer>
-          <AppNavigator />
+          <TourProvider>
+            <AppNavigator />
+          </TourProvider>
           <StatusBar style="dark" />
         </NavigationContainer>
       </GestureHandlerRootView>
