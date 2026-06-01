@@ -18,11 +18,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { useFonts } from 'expo-font';
 import {
-  attractions,
   Attraction,
   CATEGORY_COLORS,
   CATEGORY_ICONS
 } from '../data/attractions';
+import { useAttractions } from '../hooks/useAttractions';
 
 const { width, height } = Dimensions.get('window');
 const GRADIENT_SIZE = Math.sqrt(width * width + height * height) * 1.5;
@@ -31,7 +31,7 @@ const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
 
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 const GEMINI_API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 interface PlannedAttraction extends Attraction {
   estimatedTime: number;
@@ -113,6 +113,7 @@ const calculateWalkingTime = (distanceMeters: number): number => {
 
 export default function PlannerScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
+  const { attractions } = useAttractions();
   const [fontsLoaded] = useFonts({
     Kollektif: require('../../assets/fonts/Kollektif.ttf'),
     'Kollektif-Bold': require('../../assets/fonts/Kollektif-Bold.ttf')

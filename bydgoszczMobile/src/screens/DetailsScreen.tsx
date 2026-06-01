@@ -18,10 +18,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFonts } from 'expo-font';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { DetailsScreenProps } from '../navigation/types';
-import { attractions } from '../data/attractions';
 import AudioPlayerModal from '../components/AudioPlayer';
 import GeminiChatModal from '../components/GeminiChatModal';
 import ARViewModal from '../components/ARViewModal';
+import { useFavorites } from '../hooks/useFavorites';
+import { useAttractions } from '../hooks/useAttractions';
 
 const { width, height } = Dimensions.get('window');
 const GRADIENT_SIZE = Math.sqrt(width * width + height * height) * 1.5;
@@ -35,12 +36,22 @@ export default function DetailsScreen({
   const { id, title, description, location } = route.params;
   const insets = useSafeAreaInsets();
 
+  const { attractions } = useAttractions();
   const attraction = attractions.find(a => a.id === id);
+
+  const { isFavorite, toggleFavorite } = useFavorites();
 
   const [showAudioModal, setShowAudioModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
   const [showARModal, setShowARModal] = useState(false);
   const [expandedFunFacts, setExpandedFunFacts] = useState(false);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+
+  // Galeria zdjęć (z Google Places). Jeśli mamy >1 zdjęć w bazie – carousel,
+  // inaczej fallback na pojedynczy attraction.image (np. lokalny asset).
+  const screenWidth = Dimensions.get('window').width;
+  const galleryUrls = attraction?.images ?? [];
+  const hasGallery = galleryUrls.length > 1;
 
   const [fontsLoaded] = useFonts({
     Kollektif: require('../../assets/fonts/Kollektif.ttf'),
@@ -144,7 +155,7 @@ export default function DetailsScreen({
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {attraction?.image && (
+        {attraction && (attraction.image || galleryUrls.length > 0) && (
           <Animated.View
             style={[
               styles.heroImageContainer,
@@ -154,14 +165,60 @@ export default function DetailsScreen({
               }
             ]}
           >
-            <Image
-              source={attraction.image}
-              style={styles.heroImage}
-              resizeMode="cover"
-            />
+            {hasGallery ? (
+              <>
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onMomentumScrollEnd={e => {
+                    const idx = Math.round(
+                      e.nativeEvent.contentOffset.x / screenWidth
+                    );
+                    setGalleryIndex(idx);
+                  }}
+                >
+                  {galleryUrls.map((url, i) => (
+                    <Image
+                      key={i}
+                      source={{ uri: url }}
+                      style={[styles.heroImage, { width: screenWidth - 40 }]}
+                      resizeMode="cover"
+                    />
+                  ))}
+                </ScrollView>
+                <View style={styles.galleryDots} pointerEvents="none">
+                  {galleryUrls.map((_, i) => (
+                    <View
+                      key={i}
+                      style={[
+                        styles.galleryDot,
+                        i === galleryIndex && styles.galleryDotActive
+                      ]}
+                    />
+                  ))}
+                </View>
+                <View style={styles.galleryCounter} pointerEvents="none">
+                  <Ionicons name="images" size={12} color="#FFF" />
+                  <Text style={styles.galleryCounterText}>
+                    {galleryIndex + 1}/{galleryUrls.length}
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <Image
+                source={
+                  attraction?.image ??
+                  (galleryUrls[0] ? { uri: galleryUrls[0] } : undefined)
+                }
+                style={styles.heroImage}
+                resizeMode="cover"
+              />
+            )}
             <LinearGradient
               colors={['transparent', 'rgba(0,0,0,0.6)']}
               style={styles.heroGradient}
+              pointerEvents="none"
             />
 
             {/* Feature badges on image */}
@@ -198,6 +255,19 @@ export default function DetailsScreen({
                 <Text style={styles.yearBadgeText}>{attraction.yearBuilt}</Text>
               </View>
             )}
+
+            <TouchableOpacity
+              style={styles.heroFavoriteButton}
+              onPress={() => toggleFavorite(id)}
+              activeOpacity={0.8}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name={isFavorite(id) ? 'heart' : 'heart-outline'}
+                size={20}
+                color={isFavorite(id) ? '#FF4D6D' : '#FFFFFF'}
+              />
+            </TouchableOpacity>
           </Animated.View>
         )}
 
@@ -612,6 +682,55 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 10
+  },
+  galleryDots: {
+    position: 'absolute',
+    bottom: 12,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6
+  },
+  galleryDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.5)'
+  },
+  galleryDotActive: {
+    width: 18,
+    backgroundColor: '#FFF'
+  },
+  galleryCounter: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10
+  },
+  galleryCounterText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontFamily: 'Kollektif-Bold'
+  },
+  heroFavoriteButton: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)'
   },
   yearBadgeText: {
     color: '#FFFFFF',
